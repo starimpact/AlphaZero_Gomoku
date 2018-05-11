@@ -39,7 +39,7 @@ class TrainPipeline():
         self.batch_size = 512  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
-        self.epochs = 500  # num of train_steps for each update
+        self.epochs = 50  # num of train_steps for each update
         self.kl_targ = 0.02
         self.check_freq = 50
         self.game_batch_num = 1500
@@ -130,7 +130,7 @@ class TrainPipeline():
                              np.var(np.array(winner_batch) - new_v.flatten()) /
                              np.var(np.array(winner_batch)))
         print(("kl:{:.5f},"
-               "lr:{:.3f},"
+               "lr:{:.6f},"
                "loss:{},"
                "entropy:{},"
                "explained_var_old:{:.3f},"

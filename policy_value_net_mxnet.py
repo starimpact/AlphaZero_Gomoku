@@ -16,7 +16,7 @@ import pickle
 
 class PolicyValueNet():
     """policy-value network """
-    def __init__(self, board_width, board_height, model_file=None):
+    def __init__(self, board_width, board_height, model_params=None):
         self.context = mx.gpu(0)
         self.batchsize = 512 #must same to the TrainPipeline's self.batch_size.
         self.channelnum = 4
@@ -28,7 +28,10 @@ class PolicyValueNet():
         self.predict_one = self.create_policy_value_predict(1)   
         self.num = 0
 
-        if model_file:
+        if model_params:
+           self.train_batch.set_params(*model_params)
+           self.predict_batch.set_params(*model_params)
+           self.predict_one.set_params(*model_params)
            pass
 
     def conv_act(self, data, num_filter=32, kernel=(3, 3), act='relu', name=''):
