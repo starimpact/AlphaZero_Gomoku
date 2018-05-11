@@ -119,9 +119,9 @@ class TrainPipeline():
                 break
         # adaptively adjust the learning rate
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
-            self.lr_multiplier /= 1.1
+            self.lr_multiplier /= 1.5
         elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
-            self.lr_multiplier *= 1.1
+            self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
                              np.var(np.array(winner_batch) - old_v.flatten()) /

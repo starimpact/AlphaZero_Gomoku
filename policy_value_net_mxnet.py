@@ -64,16 +64,16 @@ class PolicyValueNet():
         conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
         conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
         conv4 = self.conv_act(conv3, 256, (3, 3), name='conv4')
-        conv5 = self.conv_act(conv4, 256, (3, 3), name='conv5')
-        final = self.conv_act(conv5, 256, (3, 3), name='conv_final')
+        conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
+        final = self.conv_act(conv5, 64, (3, 3), name='conv_final')
         # action policy layers
-        conv3_1 = self.conv_act(final, 64, (1, 1), name='conv3_1')
+        conv3_1 = self.conv_act(final, 16, (1, 1), name='conv3_1')
         gpool_1 = mx.sym.Pooling(conv3_1, kernel=(3,3), global_pool=True, pool_type='avg')
         fc_1 = self.fc_self(gpool_1, num_hidden = self.board_width*self.board_height, name='fc_1')
         action_1 = mx.sym.SoftmaxActivation(fc_1)       
 
         # state value layers
-        conv3_2 = self.conv_act(final, 32, (1, 1), name='conv3_2')
+        conv3_2 = self.conv_act(final, 8, (1, 1), name='conv3_2')
         gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
         fc_2 = self.fc_self(gpool_2, num_hidden=64, name='fc_2')
         act2 = mx.sym.Activation(data=fc_2, act_type='relu')
@@ -112,7 +112,8 @@ class PolicyValueNet():
                       label_shapes=[('input_labels', input_labels_shape), ('mcts_probs', mcts_probs_shape)],
                       for_training=True)
         pv_train.init_params(initializer=mx.init.Xavier())
-        pv_train.init_optimizer(optimizer='adam')
+        pv_train.init_optimizer(optimizer='adam',
+                                optimizer_params={'learning_rate':0.001, 'wd':0.001})
 
         return pv_train
 
