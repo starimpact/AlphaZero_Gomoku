@@ -39,7 +39,12 @@ class PolicyValueNet():
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
         conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad)
-        act1 = conv1
+        gamma = mx.sym.Variable(name+'_gamma')
+        beta = mx.sym.Variable(name+'_beta')
+        mean = mx.sym.Variable(name+'_mean')
+        var = mx.sym.Variable(name+'_var')
+        bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var)
+        act1 = bn
         if act is not None or act!='':
             act1 = mx.sym.Activation(data=conv1, act_type=act)
 
@@ -58,14 +63,17 @@ class PolicyValueNet():
         conv1 = self.conv_act(input_states, 32, (3, 3), name='conv1')
         conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
         conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
+        conv4 = self.conv_act(conv3, 256, (3, 3), name='conv4')
+        conv5 = self.conv_act(conv4, 256, (3, 3), name='conv5')
+        final = self.conv_act(conv5, 256, (3, 3), name='conv_final')
         # action policy layers
-        conv3_1 = self.conv_act(conv3, 4, (1, 1), name='conv3_1')
+        conv3_1 = self.conv_act(final, 64, (1, 1), name='conv3_1')
         gpool_1 = mx.sym.Pooling(conv3_1, kernel=(3,3), global_pool=True, pool_type='avg')
         fc_1 = self.fc_self(gpool_1, num_hidden = self.board_width*self.board_height, name='fc_1')
         action_1 = mx.sym.SoftmaxActivation(fc_1)       
 
         # state value layers
-        conv3_2 = self.conv_act(conv3, 2, (1, 1), name='conv3_2')
+        conv3_2 = self.conv_act(final, 2, (1, 1), name='conv3_2')
         gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
         fc_2 = self.fc_self(gpool_2, num_hidden=64, name='fc_2')
         act2 = mx.sym.Activation(data=fc_2, act_type='relu')
