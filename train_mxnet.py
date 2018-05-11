@@ -118,9 +118,9 @@ class TrainPipeline():
                 break
         # adaptively adjust the learning rate
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
-            self.lr_multiplier /= 1.5
+            self.lr_multiplier /= 1.1
         elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
-            self.lr_multiplier *= 1.5
+            self.lr_multiplier *= 1.1
 
         explained_var_old = (1 -
                              np.var(np.array(winner_batch) - old_v.flatten()) /
@@ -135,7 +135,7 @@ class TrainPipeline():
                "explained_var_old:{:.3f},"
                "explained_var_new:{:.3f}"
                ).format(kl,
-                        self.learn_rate,
+                        learn_rate,
                         loss,
                         entropy,
                         explained_var_old,
