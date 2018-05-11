@@ -73,7 +73,7 @@ class PolicyValueNet():
         action_1 = mx.sym.SoftmaxActivation(fc_1)       
 
         # state value layers
-        conv3_2 = self.conv_act(final, 2, (1, 1), name='conv3_2')
+        conv3_2 = self.conv_act(final, 32, (1, 1), name='conv3_2')
         gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
         fc_2 = self.fc_self(gpool_2, num_hidden=64, name='fc_2')
         act2 = mx.sym.Activation(data=fc_2, act_type='relu')
