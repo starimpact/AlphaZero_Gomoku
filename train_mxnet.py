@@ -39,7 +39,7 @@ class TrainPipeline():
         self.batch_size = 512  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
-        self.epochs = 5  # num of train_steps for each update
+        self.epochs = 500  # num of train_steps for each update
         self.kl_targ = 0.02
         self.check_freq = 50
         self.game_batch_num = 1500
@@ -115,6 +115,7 @@ class TrainPipeline():
                     axis=1)
             )
             if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+                print('early stopping:', i, self.epochs)
                 break
         # adaptively adjust the learning rate
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
