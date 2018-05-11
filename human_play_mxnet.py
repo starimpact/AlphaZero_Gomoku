@@ -44,7 +44,7 @@ class Human(object):
 
 def run():
     n = 5
-    width, height = 6, 6
+    width, height = 15, 15
     model_file = 'best_policy.model'
     try:
         board = Board(width=width, height=height, n_in_row=n)
