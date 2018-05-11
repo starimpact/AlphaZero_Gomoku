@@ -34,7 +34,7 @@ class PolicyValueNet():
            self.predict_one.set_params(*model_params)
            pass
 
-    def conv_act(self, data, num_filter=32, kernel=(3, 3), act='relu', name=''):
+    def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', name=''):
         pad = (int(kernel[0]/2), int(kernel[1]/2))
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
@@ -67,14 +67,16 @@ class PolicyValueNet():
         conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
         final = self.conv_act(conv5, 64, (3, 3), name='conv_final')
         # action policy layers
-        conv3_1 = self.conv_act(final, 16, (1, 1), name='conv3_1')
-        gpool_1 = mx.sym.Pooling(conv3_1, kernel=(3,3), global_pool=True, pool_type='avg')
+        conv3_1 = self.conv_act(final, 2, (1, 1), name='conv3_1')
+        #gpool_1 = mx.sym.Pooling(conv3_1, kernel=(3,3), global_pool=True, pool_type='avg')
+        gpool_1 = mx.sym.flatten(conv3_1)
         fc_1 = self.fc_self(gpool_1, num_hidden = self.board_width*self.board_height, name='fc_1')
         action_1 = mx.sym.SoftmaxActivation(fc_1)       
 
         # state value layers
-        conv3_2 = self.conv_act(final, 8, (1, 1), name='conv3_2')
-        gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
+        conv3_2 = self.conv_act(final, 1, (1, 1), name='conv3_2')
+        #gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
+        gpool_2 = mx.sym.flatten(conv3_2)
         fc_2 = self.fc_self(gpool_2, num_hidden=64, name='fc_2')
         act2 = mx.sym.Activation(data=fc_2, act_type='relu')
         fc_3 = self.fc_self(act2, num_hidden=1, name='fc_3')
@@ -113,7 +115,7 @@ class PolicyValueNet():
                       for_training=True)
         pv_train.init_params(initializer=mx.init.Xavier())
         pv_train.init_optimizer(optimizer='adam',
-                                optimizer_params={'learning_rate':0.001, 'wd':0.001})
+                                optimizer_params={'learning_rate':0.001, 'wd':0.0001})
 
         return pv_train
 
