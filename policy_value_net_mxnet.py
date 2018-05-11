@@ -18,7 +18,7 @@ class PolicyValueNet():
     """policy-value network """
     def __init__(self, board_width, board_height, model_file=None):
         self.context = mx.gpu(0)
-        self.batchsize = 512
+        self.batchsize = 512 #must same to the TrainPipeline's self.batch_size.
         self.channelnum = 4
         self.board_width = board_width
         self.board_height = board_height 
@@ -78,7 +78,7 @@ class PolicyValueNet():
  
         mcts_probs_shape = (batch_size, self.board_height * self.board_width)
         mcts_probs = mx.sym.Variable(name='mcts_probs', shape=mcts_probs_shape)
-        policy_loss = -mx.sym.sum(mx.sym.log(action_1) * mcts_probs)
+        policy_loss = -mx.sym.mean(mx.sym.log(action_1) * mcts_probs)
 
         input_labels_shape = (batch_size, 1)
         input_labels = mx.sym.Variable(name='input_labels', shape=input_labels_shape)
@@ -87,7 +87,8 @@ class PolicyValueNet():
         loss = value_loss + policy_loss
         loss = mx.sym.MakeLoss(loss) 
 
-        entropy = -mx.sym.mean(action_1 * mx.sym.log(action_1))
+        entropy = mx.sym.sum(-action_1 * mx.sym.log(action_1), axis=1)
+        entropy = mx.sym.mean(entropy)
         entropy = mx.sym.BlockGrad(entropy)
         entropy = mx.sym.MakeLoss(entropy) 
         policy_value_loss = mx.sym.Group([loss, entropy])
@@ -100,7 +101,7 @@ class PolicyValueNet():
                       label_shapes=[('input_labels', input_labels_shape), ('mcts_probs', mcts_probs_shape)],
                       for_training=True)
         pv_train.init_params(initializer=mx.init.Xavier())
-        pv_train.init_optimizer(optimizer='adam', optimizer_params={'learning_rate':0.02})
+        pv_train.init_optimizer(optimizer='adam', optimizer_params={'learning_rate':0.001})
 
         return pv_train
 
@@ -123,6 +124,7 @@ class PolicyValueNet():
         
     def policy_value(self, state_batch):
         states = np.asarray(state_batch)
+        #print('policy_value:', states.shape)
         state_nd = mx.nd.array(states)
         self.predict_batch.forward(mx.io.DataBatch([state_nd]))
         acts, vals = self.predict_batch.get_outputs()
@@ -140,8 +142,8 @@ class PolicyValueNet():
             state_nd = mx.nd.array(state)
             self.predict_one.forward(mx.io.DataBatch([state_nd]))
             act, val = self.predict_one.get_outputs()
-            actsall.append(act[0])
-            valsall.append(val[0])
+            actsall.append(act[0].asnumpy())
+            valsall.append(val[0].asnumpy())
         acts = np.asarray(actsall)
         vals = np.asarray(valsall)
         #print(acts.shape, vals.shape)
@@ -158,15 +160,20 @@ class PolicyValueNet():
         state_nd = mx.nd.array(current_state)
         self.predict_one.forward(mx.io.DataBatch([state_nd]))
         acts_probs, values = self.predict_one.get_outputs()
+        acts_probs = acts_probs.asnumpy()
+        values = values.asnumpy()
         #self.num += 1
         #print(self.num, acts_probs.shape)
-       
-        act_probs = zip(legal_positions, acts_probs[0][legal_positions])
+        legal_actprob = acts_probs[0][legal_positions] 
+        act_probs = zip(legal_positions, legal_actprob)
+       # print(len(legal_positions), legal_actprob.shape, acts_probs.shape)
+       # if len(legal_positions)==0:
+       #     exit()
 
         return act_probs, values[0]
 
     def train_step(self, state_batch, mcts_probs, winner_batch, learning_rate):
-        print('hello training....')
+        #print('hello training....')
         state_batch = mx.nd.array(np.asarray(state_batch).reshape(-1, self.channelnum, self.board_height, self.board_width))
         mcts_probs = mx.nd.array(np.asarray(mcts_probs).reshape(-1, self.board_height*self.board_width))
         winner_batch = mx.nd.array(np.asarray(winner_batch).reshape(-1, 1))
