@@ -101,7 +101,7 @@ class PolicyValueNet():
                       label_shapes=[('input_labels', input_labels_shape), ('mcts_probs', mcts_probs_shape)],
                       for_training=True)
         pv_train.init_params(initializer=mx.init.Xavier())
-        pv_train.init_optimizer(optimizer='adam', optimizer_params={'learning_rate':0.001})
+        pv_train.init_optimizer(optimizer='adam')
 
         return pv_train
 
@@ -174,6 +174,7 @@ class PolicyValueNet():
 
     def train_step(self, state_batch, mcts_probs, winner_batch, learning_rate):
         #print('hello training....')
+        self.train_batch._optimizer.lr = learning_rate
         state_batch = mx.nd.array(np.asarray(state_batch).reshape(-1, self.channelnum, self.board_height, self.board_width))
         mcts_probs = mx.nd.array(np.asarray(mcts_probs).reshape(-1, self.board_height*self.board_width))
         winner_batch = mx.nd.array(np.asarray(winner_batch).reshape(-1, 1))
