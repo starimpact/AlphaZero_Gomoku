@@ -39,13 +39,16 @@ class PolicyValueNet():
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
         conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad)
-        gamma = mx.sym.Variable(name+'_gamma')
-        beta = mx.sym.Variable(name+'_beta')
-        mean = mx.sym.Variable(name+'_mean')
-        var = mx.sym.Variable(name+'_var')
-        bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var)
-        act1 = bn
-        if act is not None or act!='':
+        act1 = conv1
+        if False:
+            gamma = mx.sym.Variable(name+'_gamma')
+            beta = mx.sym.Variable(name+'_beta')
+            mean = mx.sym.Variable(name+'_mean')
+            var = mx.sym.Variable(name+'_var')
+            bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var)
+            act1 = bn
+        if act is not None and act!='':
+            print('....', act)
             act1 = mx.sym.Activation(data=conv1, act_type=act)
 
         return act1
@@ -63,24 +66,20 @@ class PolicyValueNet():
         conv1 = self.conv_act(input_states, 32, (3, 3), name='conv1')
         conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
         conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
-        conv4 = self.conv_act(conv3, 256, (3, 3), name='conv4')
-        conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
-        final = self.conv_act(conv5, 64, (3, 3), name='conv_final')
+        conv4 = self.conv_act(conv3, 128, (3, 3), name='conv4')
+        final = conv4 #self.conv_act(conv5, 64, (3, 3), name='conv_final')
+
         # action policy layers
-        conv3_1 = self.conv_act(final, 2, (1, 1), name='conv3_1')
-        #gpool_1 = mx.sym.Pooling(conv3_1, kernel=(3,3), global_pool=True, pool_type='avg')
-        gpool_1 = mx.sym.flatten(conv3_1)
-        fc_1 = self.fc_self(gpool_1, num_hidden = self.board_width*self.board_height, name='fc_1')
-        action_1 = mx.sym.SoftmaxActivation(fc_1)       
+        conv3_1_1 = self.conv_act(final, 256, (3, 3), name='conv3_1_1')
+        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act='sigmoid', name='conv3_1_2')
+        action_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
 
         # state value layers
-        conv3_2 = self.conv_act(final, 1, (1, 1), name='conv3_2')
-        #gpool_2 = mx.sym.Pooling(conv3_2, kernel=(3,3), global_pool=True, pool_type='avg')
-        gpool_2 = mx.sym.flatten(conv3_2)
-        fc_2 = self.fc_self(gpool_2, num_hidden=64, name='fc_2')
-        act2 = mx.sym.Activation(data=fc_2, act_type='relu')
-        fc_3 = self.fc_self(act2, num_hidden=1, name='fc_3')
-        evaluation = mx.sym.Activation(fc_3, act_type='tanh')
+        conv3_2_1 = self.conv_act(final, 256, (3, 3), name='conv3_2_1')
+        conv3_2_2 = self.conv_act(conv3_2_1, 1, (1, 1), act=None, name='conv3_2_2')
+        gpool_2 = mx.sym.Pooling(conv3_2_2, kernel=(3,3), global_pool=True, pool_type='avg')
+        reshape_2 = mx.sym.reshape(gpool_2, shape=(-1, 1))       
+        evaluation = mx.sym.Activation(reshape_2, act_type='tanh')
 
         return action_1, evaluation
 

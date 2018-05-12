@@ -6,6 +6,7 @@ An implementation of the training pipeline of AlphaZero for Gomoku
 """
 
 from __future__ import print_function
+import pickle
 import random
 import numpy as np
 from collections import defaultdict, deque
@@ -22,25 +23,25 @@ from policy_value_net_mxnet import PolicyValueNet # Keras
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
-        self.board_width = 15
-        self.board_height = 15
+        self.board_width = 6
+        self.board_height = 6
         self.n_in_row = 4
         self.board = Board(width=self.board_width,
                            height=self.board_height,
                            n_in_row=self.n_in_row)
         self.game = Game(self.board)
         # training params
-        self.learn_rate = 2e-3
+        self.learn_rate = 2e-2
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 10000
+        self.buffer_size = 100000
         self.batch_size = 512  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 10  # num of train_steps for each update
-        self.kl_targ = 0.02
+        self.kl_targ = 0.01
         self.check_freq = 50
         self.game_batch_num = 1500
         self.best_win_ratio = 0.0
@@ -51,7 +52,7 @@ class TrainPipeline():
             # start training from an initial policy-value net
             self.policy_value_net = PolicyValueNet(self.board_width,
                                                    self.board_height,
-                                                   model_file=init_model)
+                                                   model_params=init_model)
         else:
             # start training from a new policy-value net
             self.policy_value_net = PolicyValueNet(self.board_width,
@@ -118,9 +119,9 @@ class TrainPipeline():
                 print('early stopping:', i, self.epochs)
                 break
         # adaptively adjust the learning rate
-        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
+        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
             self.lr_multiplier /= 1.5
-        elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
+        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
             self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
@@ -195,5 +196,15 @@ class TrainPipeline():
 
 
 if __name__ == '__main__':
-    training_pipeline = TrainPipeline()
+    model_file = None#h'current_policy.model'
+    policy_param = None 
+    if model_file is not None:
+        print('loading...', model_file)
+        try:
+            policy_param = pickle.load(open(model_file, 'rb'))
+        except:
+            policy_param = pickle.load(open(model_file, 'rb'),
+                                       encoding='bytes')  # To support python3
+    training_pipeline = TrainPipeline(policy_param)
     training_pipeline.run()
+
