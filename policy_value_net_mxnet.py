@@ -34,13 +34,13 @@ class PolicyValueNet():
            self.predict_one.set_params(*model_params)
            pass
 
-    def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', name=''):
+    def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
         pad = (int(kernel[0]/2), int(kernel[1]/2))
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
         conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad)
         act1 = conv1
-        if False:
+        if dobn:
             gamma = mx.sym.Variable(name+'_gamma')
             beta = mx.sym.Variable(name+'_beta')
             mean = mx.sym.Variable(name+'_mean')
@@ -48,7 +48,7 @@ class PolicyValueNet():
             bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var)
             act1 = bn
         if act is not None and act!='':
-            print('....', act)
+            #print('....', act)
             act1 = mx.sym.Activation(data=conv1, act_type=act)
 
         return act1
@@ -67,20 +67,22 @@ class PolicyValueNet():
         conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
         conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
         conv4 = self.conv_act(conv3, 128, (3, 3), name='conv4')
-        final = conv4 #self.conv_act(conv5, 64, (3, 3), name='conv_final')
+        conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
+        final = self.conv_act(conv5, 128, (3, 3), name='conv_final')
 
         # action policy layers
-        conv3_1_1 = self.conv_act(final, 256, (3, 3), name='conv3_1_1')
-        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act=None, name='conv3_1_2')
-        reshape_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
-        action_1 = mx.sym.SoftmaxActivation(reshape_1) 
+        conv3_1_1 = self.conv_act(final, 1024, (1, 1), name='conv3_1_1')
+        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act=None, dobn=False, name='conv3_1_2')
+        #reshape_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
+        flatten_1 = mx.sym.Flatten(conv3_1_2)       
+        action_1 = mx.sym.SoftmaxActivation(flatten_1) 
 
         # state value layers
-        conv3_2_1 = self.conv_act(final, 256, (3, 3), name='conv3_2_1')
-        conv3_2_2 = self.conv_act(conv3_2_1, 1, (1, 1), act=None, name='conv3_2_2')
-        gpool_2 = mx.sym.Pooling(conv3_2_2, kernel=(3,3), global_pool=True, pool_type='avg')
-        reshape_2 = mx.sym.reshape(gpool_2, shape=(-1, 1))       
-        evaluation = mx.sym.Activation(reshape_2, act_type='tanh')
+        conv3_2_1 = self.conv_act(final, 256, (1, 1), name='conv3_2_1')
+        conv3_2_2 = self.conv_act(conv3_2_1, 1, (1, 1), act=None, dobn=False, name='conv3_2_2')
+        flatten_2 = mx.sym.Flatten(conv3_2_2)
+        mean_2 = mx.sym.mean(flatten_2, axis=1, keepdims=True)
+        evaluation = mx.sym.Activation(mean_2, act_type='tanh')
 
         return action_1, evaluation
 
@@ -91,7 +93,8 @@ class PolicyValueNet():
  
         mcts_probs_shape = (batch_size, self.board_height * self.board_width)
         mcts_probs = mx.sym.Variable(name='mcts_probs', shape=mcts_probs_shape)
-        policy_loss = -mx.sym.mean(mx.sym.log(action_1) * mcts_probs)
+        policy_loss = -mx.sym.sum(mx.sym.log(action_1) * mcts_probs, axis=1)
+        policy_loss = mx.sym.mean(policy_loss)
 
         input_labels_shape = (batch_size, 1)
         input_labels = mx.sym.Variable(name='input_labels', shape=input_labels_shape)
@@ -115,7 +118,10 @@ class PolicyValueNet():
                       for_training=True)
         pv_train.init_params(initializer=mx.init.Xavier())
         pv_train.init_optimizer(optimizer='adam',
-                                optimizer_params={'learning_rate':0.001, 'wd':0.0001})
+                                optimizer_params={'learning_rate':0.001, 
+                                                  #'clip_gradient':0.1, 
+                                                  #'momentum':0.9,
+                                                  'wd':0.0001})
 
         return pv_train
 
@@ -144,6 +150,7 @@ class PolicyValueNet():
         acts, vals = self.predict_batch.get_outputs()
         acts = acts.asnumpy()
         vals = vals.asnumpy()
+        #print(acts[0], vals[0])
 
         return acts, vals
 
@@ -176,8 +183,7 @@ class PolicyValueNet():
         acts_probs, values = self.predict_one.get_outputs()
         acts_probs = acts_probs.asnumpy()
         values = values.asnumpy()
-        #self.num += 1
-        #print(self.num, acts_probs.shape)
+        #print(acts_probs[0, :4])
         legal_actprob = acts_probs[0][legal_positions] 
         act_probs = zip(legal_positions, legal_actprob)
        # print(len(legal_positions), legal_actprob.shape, acts_probs.shape)
@@ -188,6 +194,7 @@ class PolicyValueNet():
 
     def train_step(self, state_batch, mcts_probs, winner_batch, learning_rate):
         #print('hello training....')
+        #print(mcts_probs[0], winner_batch[0])
         self.train_batch._optimizer.lr = learning_rate
         state_batch = mx.nd.array(np.asarray(state_batch).reshape(-1, self.channelnum, self.board_height, self.board_width))
         mcts_probs = mx.nd.array(np.asarray(mcts_probs).reshape(-1, self.board_height*self.board_width))
