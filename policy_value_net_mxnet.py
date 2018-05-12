@@ -71,8 +71,9 @@ class PolicyValueNet():
 
         # action policy layers
         conv3_1_1 = self.conv_act(final, 256, (3, 3), name='conv3_1_1')
-        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act='sigmoid', name='conv3_1_2')
-        action_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
+        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act=None, name='conv3_1_2')
+        reshape_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
+        action_1 = mx.sym.SoftmaxActivation(reshape_1) 
 
         # state value layers
         conv3_2_1 = self.conv_act(final, 256, (3, 3), name='conv3_2_1')
