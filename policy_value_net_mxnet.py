@@ -35,6 +35,7 @@ class PolicyValueNet():
            pass
 
     def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
+        # self convolution activation
         assert(name!='' and name!=None)
         pad = (int(kernel[0]/2), int(kernel[1]/2))
         w = mx.sym.Variable(name+'_weight')
