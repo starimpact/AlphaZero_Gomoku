@@ -44,7 +44,7 @@ class Human(object):
 
 def run():
     n = 5
-    width, height = 15, 15
+    width, height = 8, 8
     #model_file = 'best_policy.model'
     model_file = 'current_policy.model'
     try:

@@ -35,25 +35,27 @@ class PolicyValueNet():
            pass
 
     def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
+        assert(name!='' and name!=None)
         pad = (int(kernel[0]/2), int(kernel[1]/2))
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
-        conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad)
+        conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad, name=name)
         act1 = conv1
         if dobn:
             gamma = mx.sym.Variable(name+'_gamma')
             beta = mx.sym.Variable(name+'_beta')
             mean = mx.sym.Variable(name+'_mean')
             var = mx.sym.Variable(name+'_var')
-            bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var)
+            bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var, name=name+'_bn')
             act1 = bn
         if act is not None and act!='':
             #print('....', act)
-            act1 = mx.sym.Activation(data=conv1, act_type=act)
+            act1 = mx.sym.Activation(data=act1, act_type=act, name=name+'_act')
 
         return act1
     
     def fc_self(self, data, num_hidden, name=''):
+        assert(name!='' and name!=None)
         w = mx.sym.Variable(name+'_weight')
         b = mx.sym.Variable(name+'_bias')
         fc_1 = mx.sym.FullyConnected(data, weight=w, bias=b, num_hidden=num_hidden, name=name)
@@ -134,6 +136,7 @@ class PolicyValueNet():
         entropy = mx.sym.BlockGrad(entropy)
         entropy = mx.sym.MakeLoss(entropy) 
         policy_value_loss = mx.sym.Group([loss, entropy])
+        policy_value_loss.save('policy_value_loss.json')
 
         pv_train = mx.mod.Module(symbol=policy_value_loss, 
                                  data_names=['input_states'],
