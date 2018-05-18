@@ -66,10 +66,13 @@ def run():
         best_policy = PolicyValueNet(width, height, policy_param)
         mcts_player = MCTSPlayer(best_policy.policy_value_fn,
                                  c_puct=5,
-                                 n_playout=400)  # set larger n_playout for better performance
+                                 n_playout=4000)  # set larger n_playout for better performance
 
         # uncomment the following line to play with pure MCTS (it's much weaker even with a larger n_playout)
-        # mcts_player = MCTS_Pure(c_puct=5, n_playout=1000)
+        #mcts_player2 = MCTS_Pure(c_puct=5, n_playout=1000)
+       # mcts_player2 = MCTSPlayer(best_policy.policy_value_fn,
+       #                          c_puct=5,
+       #                          n_playout=4000)  # set larger n_playout for better performance
 
         # human player, input your move in the format: 2,3
         human = Human()

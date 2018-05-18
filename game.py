@@ -55,6 +55,31 @@ class Board(object):
 
     def current_state(self):
         """return the board state from the perspective of the current player.
+        state shape: (self.n_in_row*2+1)*width*height
+        """
+        statelen = self.n_in_row*2+1
+        square_state = np.zeros((statelen, self.width, self.height))
+        if self.states:
+            moves_all, players_all = np.array(list(zip(*self.states.items())))
+            real_len = len(moves_all)
+            for i in range(self.n_in_row):
+                moves = moves_all[:real_len-i]
+                players = players_all[:real_len-i]
+                #print(moves, players)
+                move_curr = moves[players == self.current_player]
+                move_oppo = moves[players != self.current_player]
+                square_state[-2*i-3][move_curr // self.width,
+                                move_curr % self.height] = 1.0
+                square_state[-2*i-2][move_oppo // self.width,
+                                move_oppo % self.height] = 1.0
+                if real_len-i == 0:
+                    break
+        if len(self.states) % 2 == 0:
+            square_state[-1][:, :] = 1.0  # indicate the colour to play
+        return square_state[:, ::-1, :]
+
+    def current_state_old(self):
+        """return the board state from the perspective of the current player.
         state shape: 4*width*height
         """
 

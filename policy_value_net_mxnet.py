@@ -19,7 +19,7 @@ class PolicyValueNet():
     def __init__(self, board_width, board_height, model_params=None):
         self.context = mx.gpu(0)
         self.batchsize = 512 #must same to the TrainPipeline's self.batch_size.
-        self.channelnum = 4
+        self.channelnum = 9
         self.board_width = board_width
         self.board_height = board_height 
         self.l2_const = 1e-4  # coef of l2 penalty 
@@ -76,12 +76,14 @@ class PolicyValueNet():
         # action policy layers
         conv3_1_1 = self.conv_act(final, 4, (1, 1), name='conv3_1_1')
         flatten_1 = mx.sym.Flatten(conv3_1_1)       
+        flatten_1 = mx.sym.Dropout(flatten_1, p=0.5)
         fc_3_1_1 = self.fc_self(flatten_1, self.board_height*self.board_width, name='fc_3_1_1')
         action_1 = mx.sym.SoftmaxActivation(fc_3_1_1) 
 
         # state value layers
         conv3_2_1 = self.conv_act(final, 2, (1, 1), name='conv3_2_1')
         flatten_2 = mx.sym.Flatten(conv3_2_1)
+        flatten_2 = mx.sym.Dropout(flatten_2, p=0.5)
         fc_3_2_1 = self.fc_self(flatten_2, 1, name='fc_3_2_1')
         evaluation = mx.sym.Activation(fc_3_2_1, act_type='tanh')
 
@@ -102,7 +104,6 @@ class PolicyValueNet():
         # action policy layers
         conv3_1_1 = self.conv_act(final, 1024, (1, 1), name='conv3_1_1')
         conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act=None, dobn=False, name='conv3_1_2')
-        #reshape_1 = mx.sym.reshape(conv3_1_2, shape=(-1, self.board_height*self.board_width))       
         flatten_1 = mx.sym.Flatten(conv3_1_2)       
         action_1 = mx.sym.SoftmaxActivation(flatten_1) 
 
@@ -207,7 +208,7 @@ class PolicyValueNet():
         output: a list of (action, probability) tuples for each available action and the score of the board state
         """
         legal_positions = board.availables
-        current_state = board.current_state().reshape(1, 4, self.board_height, self.board_width)
+        current_state = board.current_state().reshape(1, self.channelnum, self.board_height, self.board_width)
         state_nd = mx.nd.array(current_state)
         self.predict_one.forward(mx.io.DataBatch([state_nd]))
         acts_probs, values = self.predict_one.get_outputs()
