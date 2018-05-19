@@ -25,7 +25,7 @@ class TrainPipeline():
         # params of the board and the game
         self.board_width = 8
         self.board_height = 8
-        self.n_in_row = 4
+        self.n_in_row = 5
         self.board = Board(width=self.board_width,
                            height=self.board_height,
                            n_in_row=self.n_in_row)
@@ -36,14 +36,14 @@ class TrainPipeline():
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 10000
+        self.buffer_size = 100000
         self.batch_size = 512  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
         self.check_freq = 50
-        self.game_batch_num = 15000
+        self.game_batch_num = 150000
         self.best_win_ratio = 0.0
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
@@ -196,7 +196,7 @@ class TrainPipeline():
 
 
 if __name__ == '__main__':
-    model_file = None#'current_policy_8x8_1.model'
+    model_file = 'current_policy.model'
     policy_param = None 
     if model_file is not None:
         print('loading...', model_file)

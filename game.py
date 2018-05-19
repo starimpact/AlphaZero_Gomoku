@@ -55,14 +55,15 @@ class Board(object):
 
     def current_state(self):
         """return the board state from the perspective of the current player.
-        state shape: (self.n_in_row*2+1)*width*height
+        state shape: (histlen*2+1)*width*height
         """
-        statelen = self.n_in_row*2+1
+        histlen = 4
+        statelen = histlen*2+1
         square_state = np.zeros((statelen, self.width, self.height))
         if self.states:
             moves_all, players_all = np.array(list(zip(*self.states.items())))
             real_len = len(moves_all)
-            for i in range(self.n_in_row):
+            for i in range(histlen):
                 moves = moves_all[:real_len-i]
                 players = players_all[:real_len-i]
                 #print(moves, players)

@@ -66,12 +66,12 @@ class PolicyValueNet():
     def create_backbone(self, input_states):
         """create the policy value network """   
        
-        conv1 = self.conv_act(input_states, 32, (3, 3), name='conv1')
+        conv1 = self.conv_act(input_states, 64, (3, 3), name='conv1')
         conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
         conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
         conv4 = self.conv_act(conv3, 128, (3, 3), name='conv4')
-        conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
-        final = self.conv_act(conv5, 128, (3, 3), name='conv_final')
+        conv5 = self.conv_act(conv4, 256, (3, 3), name='conv5')
+        final = self.conv_act(conv5, 256, (3, 3), name='conv_final')
 
         # action policy layers
         conv3_1_1 = self.conv_act(final, 4, (1, 1), name='conv3_1_1')
