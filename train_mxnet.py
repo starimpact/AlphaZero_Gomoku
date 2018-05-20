@@ -31,7 +31,7 @@ class TrainPipeline():
                            n_in_row=self.n_in_row)
         self.game = Game(self.board)
         # training params
-        self.learn_rate = 2e-3
+        self.learn_rate = 2e-4
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
@@ -119,9 +119,9 @@ class TrainPipeline():
                 print('early stopping:', i, self.epochs)
                 break
         # adaptively adjust the learning rate
-        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.1:
+        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
             self.lr_multiplier /= 1.5
-        elif kl < self.kl_targ / 2 and self.lr_multiplier < 10:
+        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
             self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
@@ -130,8 +130,8 @@ class TrainPipeline():
         explained_var_new = (1 -
                              np.var(np.array(winner_batch) - new_v.flatten()) /
                              np.var(np.array(winner_batch)))
-        print(("kl:{:.5f},"
-               "lr:{:.6f},"
+        print(("kl:{:.4f},"
+               "lr:{:.1e},"
                "loss:{},"
                "entropy:{},"
                "explained_var_old:{:.3f},"
@@ -178,7 +178,7 @@ class TrainPipeline():
                     loss, entropy = self.policy_update()
                 # check the performance of the current model,
                 # and save the model params
-                if (i+1) % 100 == 0:
+                if (i+1) % 50 == 0:
                     self.policy_value_net.save_model('./current_policy.model')
                 if (i+1) % self.check_freq == 0:
                     print("current self-play batch: {}".format(i+1))

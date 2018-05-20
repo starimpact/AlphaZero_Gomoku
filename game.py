@@ -29,6 +29,7 @@ class Board(object):
         # keep available moves in a list
         self.availables = list(range(self.width * self.height))
         self.states = {}
+        self.history = []
         self.last_move = -1
 
     def move_to_location(self, move):
@@ -61,7 +62,9 @@ class Board(object):
         statelen = histlen*2+1
         square_state = np.zeros((statelen, self.width, self.height))
         if self.states:
-            moves_all, players_all = np.array(list(zip(*self.states.items())))
+            histarr = np.array(self.history)
+            moves_all = histarr[:, 0]
+            players_all = histarr[:, 1]
             real_len = len(moves_all)
             for i in range(histlen):
                 moves = moves_all[:real_len-i]
@@ -102,6 +105,7 @@ class Board(object):
 
     def do_move(self, move):
         self.states[move] = self.current_player
+        self.history.append((move, self.current_player))
         self.availables.remove(move)
         self.current_player = (
             self.players[0] if self.current_player == self.players[1]

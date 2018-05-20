@@ -248,4 +248,5 @@ class PolicyValueNet():
     def save_model(self, model_file):
         """ save model params to file """
         net_params = self.get_policy_param()
+        print('>>>>>>>>>> saved into', model_file)
         pickle.dump(net_params, open(model_file, 'wb'), protocol=2)
