@@ -58,7 +58,7 @@ class Board(object):
         """return the board state from the perspective of the current player.
         state shape: (histlen*2+1)*width*height
         """
-        histlen = 4
+        histlen = 2
         statelen = histlen*2+1
         square_state = np.zeros((statelen, self.width, self.height))
         if self.states:

@@ -17,27 +17,28 @@ from mcts_alphaZero import MCTSPlayer
 # from policy_value_net_pytorch import PolicyValueNet  # Pytorch
 # from policy_value_net_tensorflow import PolicyValueNet # Tensorflow
 # from policy_value_net_keras import PolicyValueNet # Keras
-from policy_value_net_mxnet import PolicyValueNet # Keras
+from policy_value_net_mxnet import PolicyValueNet, PolicyValueNet_SelfPlay  # Keras
 
 
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
+        self.parallel_games = 2
         self.board_width = 8
         self.board_height = 8
         self.n_in_row = 5
         self.board = Board(width=self.board_width,
                            height=self.board_height,
                            n_in_row=self.n_in_row)
-        self.game = Game(self.board)
+        self.games = [Game(self.board) for i in range(self.parallel_games)]
         # training params
         self.learn_rate = 2e-4
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 100000
-        self.batch_size = 512  # mini-batch size for training
+        self.buffer_size = 1100
+        self.batch_size = 1024  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
@@ -48,6 +49,7 @@ class TrainPipeline():
         # num of simulations used for the pure mcts, which is used as
         # the opponent to evaluate the trained policy
         self.pure_mcts_playout_num = 1000
+
         if init_model:
             # start training from an initial policy-value net
             self.policy_value_net = PolicyValueNet(self.board_width,
@@ -57,10 +59,25 @@ class TrainPipeline():
             # start training from a new policy-value net
             self.policy_value_net = PolicyValueNet(self.board_width,
                                                    self.board_height)
-        self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
+
+        params = self.policy_value_net.get_policy_param()
+        self.mcts_players = []
+        for i in range(self.parallel_games):
+            if init_model:
+                # start training from an initial policy-value net
+                selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+                                                       self.board_height,
+                                                       model_params=init_model)
+            else:
+                # start training from a new policy-value net
+                selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+                                                       self.board_height)
+            selfplay_net.set_params(params)
+            mcts_player = MCTSPlayer(selfplay_net.policy_value_fn,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
+            self.mcts_players.append([mcts_player, selfplay_net])
 
     def get_equi_data(self, play_data):
         """augment the data set by rotation and flipping
@@ -84,14 +101,28 @@ class TrainPipeline():
                                     winner))
         return extend_data
 
-    def collect_selfplay_data(self, n_games=1):
+
+    def oneselfplay_data_parallel(game, mcts_player, temp):
+        winner, play_data = game.start_self_play(mcts_player,
+                                                 temp=temp)
+        play_data = list(play_data)[:]
+        return play_data
+
+
+    def oneselfplay_data(self, game, mcts_player, temp):
+        winner, play_data = game.start_self_play(mcts_player,
+                                                 temp=temp)
+        play_data = list(play_data)[:]
+        return play_data
+
+    def collect_selfplay_data(self):
         """collect self-play data for training"""
-        for i in range(n_games):
-            winner, play_data = self.game.start_self_play(self.mcts_player,
-                                                          temp=self.temp)
-            play_data = list(play_data)[:]
-            self.episode_len = len(play_data)
-            # augment the data
+        self.episode_len = 0
+        for pgi in range(self.parallel_games):
+            play_data = self.oneselfplay_data(self.games[pgi], self.mcts_players[pgi][0], self.temp)
+            _len = len(play_data)
+            self.episode_len += _len
+            print('game ', pgi, _len)
             play_data = self.get_equi_data(play_data)
             self.data_buffer.extend(play_data)
         #print(len(self.data_buffer), n_games)
@@ -171,11 +202,16 @@ class TrainPipeline():
         """run the training pipeline"""
         try:
             for i in range(self.game_batch_num):
-                self.collect_selfplay_data(1)
+                self.collect_selfplay_data()
                 print("batch i:{}, episode_len:{}, buffer_len:{}".format(
                         i+1, self.episode_len, len(self.data_buffer)))
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_update()
+                    params = self.policy_value_net.get_policy_param()
+                    for spi in range(self.parallel_games):
+                        selfplay_net = self.mcts_players[spi][1]
+                        selfplay_net.set_params(params)
+                        
                 # check the performance of the current model,
                 # and save the model params
                 if (i+1) % 50 == 0:
@@ -197,7 +233,7 @@ class TrainPipeline():
 
 
 if __name__ == '__main__':
-    model_file = 'current_policy.model'
+    model_file = None #'current_policy.model'
     policy_param = None 
     if model_file is not None:
         print('loading...', model_file)

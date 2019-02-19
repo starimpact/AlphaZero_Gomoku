@@ -7,119 +7,146 @@ Tested under Keras 2.0.5 with tensorflow-gpu 1.2.1 as backend
 """ 
 from __future__ import print_function
 import sys
-sys.path.insert(0, '/home/mingzhang/work/dmlc/python_mxnet/python')
+sys.path.insert(0, '/home/mingzhang/work/mxnetv1.2.python')
 
 import mxnet as mx
 import numpy as np
 import pickle
 
+def conv_act(data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
+    # self convolution activation
+    assert(name!='' and name!=None)
+    pad = (int(kernel[0]/2), int(kernel[1]/2))
+    w = mx.sym.Variable(name+'_weight')
+    b = mx.sym.Variable(name+'_bias')
+    conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad, name=name)
+    act1 = conv1
+    if dobn:
+        gamma = mx.sym.Variable(name+'_gamma')
+        beta = mx.sym.Variable(name+'_beta')
+        mean = mx.sym.Variable(name+'_mean')
+        var = mx.sym.Variable(name+'_var')
+        bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var, name=name+'_bn')
+        act1 = bn
+    if act is not None and act!='':
+        #print('....', act)
+        act1 = mx.sym.Activation(data=act1, act_type=act, name=name+'_act')
+
+    return act1
+
+def fc_self(data, num_hidden, name=''):
+    assert(name!='' and name!=None)
+    w = mx.sym.Variable(name+'_weight')
+    b = mx.sym.Variable(name+'_bias')
+    fc_1 = mx.sym.FullyConnected(data, weight=w, bias=b, num_hidden=num_hidden, name=name)
+
+    return fc_1
+
+def create_backbone(input_states, board_height, board_width):
+    """create the policy value network """   
+   
+    conv1 = conv_act(input_states, 64, (3, 3), name='conv1')
+    conv2 = conv_act(conv1, 64, (3, 3), name='conv2')
+    conv3 = conv_act(conv2, 128, (3, 3), name='conv3')
+    conv4 = conv_act(conv3, 128, (3, 3), name='conv4')
+    conv5 = conv_act(conv4, 256, (3, 3), name='conv5')
+    final = conv_act(conv5, 256, (3, 3), name='conv_final')
+
+    # action policy layers
+    conv3_1_1 = conv_act(final, 4, (1, 1), name='conv3_1_1')
+    flatten_1 = mx.sym.Flatten(conv3_1_1)       
+    flatten_1 = mx.sym.Dropout(flatten_1, p=0.5)
+    fc_3_1_1 = fc_self(flatten_1, board_height*board_width, name='fc_3_1_1')
+    action_1 = mx.sym.SoftmaxActivation(fc_3_1_1) 
+
+    # state value layers
+    conv3_2_1 = conv_act(final, 2, (1, 1), name='conv3_2_1')
+    flatten_2 = mx.sym.Flatten(conv3_2_1)
+    flatten_2 = mx.sym.Dropout(flatten_2, p=0.5)
+    fc_3_2_1 = fc_self(flatten_2, 1, name='fc_3_2_1')
+    evaluation = mx.sym.Activation(fc_3_2_1, act_type='tanh')
+
+    return action_1, evaluation
+
+
+class PolicyValueNet_SelfPlay():
+    def __init__(self, board_width, board_height, model_params=None):
+        self.context_p = mx.gpu(2)
+        self.channelnum = 5
+        self.board_width = board_width
+        self.board_height = board_height 
+        self.l2_const = 1e-4  # coef of l2 penalty 
+        self.predict_one = self.create_policy_value_predict(1)   
+        self.num = 0
+
+        if model_params:
+           self.predict_one.set_params(*model_params)
+           pass
+
+    def create_policy_value_predict(self, batch_size): 
+        input_states_shape = (batch_size, self.channelnum, self.board_height, self.board_width)
+        input_states = mx.sym.Variable(name='input_states', shape=input_states_shape)
+        action_1, evaluation = create_backbone(input_states, self.board_height, self.board_width)
+        policy_value_output = mx.sym.Group([action_1, evaluation])
+ 
+        pv_predict = mx.mod.Module(symbol=policy_value_output, 
+                                   data_names=['input_states'],
+                                   label_names=None,
+                                   context=self.context_p) 
+        
+        pv_predict.bind(data_shapes=[('input_states', input_states_shape)], for_training=False)
+        
+        return pv_predict
+
+    def set_params(self, params):
+        args, auxs = params
+        self.predict_one.set_params(args, auxs)
+
+    def policy_value_fn(self, board):
+        """
+        input: board
+        output: a list of (action, probability) tuples for each available action and the score of the board state
+        """
+        legal_positions = board.availables
+        current_state = board.current_state().reshape(1, self.channelnum, self.board_height, self.board_width)
+        state_nd = mx.nd.array(current_state)
+        self.predict_one.forward(mx.io.DataBatch([state_nd]))
+        acts_probs, values = self.predict_one.get_outputs()
+        acts_probs = acts_probs.asnumpy()
+        values = values.asnumpy()
+        #print(acts_probs[0, :4])
+        legal_actprob = acts_probs[0][legal_positions] 
+        act_probs = zip(legal_positions, legal_actprob)
+       # print(len(legal_positions), legal_actprob.shape, acts_probs.shape)
+       # if len(legal_positions)==0:
+       #     exit()
+
+        return act_probs, values[0]
+
+
 
 class PolicyValueNet():
     """policy-value network """
     def __init__(self, board_width, board_height, model_params=None):
-        self.context = mx.gpu(0)
-        self.batchsize = 512 #must same to the TrainPipeline's self.batch_size.
-        self.channelnum = 9
+        self.context = mx.gpu(1)
+        self.batchsize = 1024 #must same to the TrainPipeline's self.batch_size.
+        self.channelnum = 5
         self.board_width = board_width
         self.board_height = board_height 
         self.l2_const = 1e-4  # coef of l2 penalty 
         self.train_batch = self.create_policy_value_train(self.batchsize)   
         self.predict_batch = self.create_policy_value_predict(self.batchsize)   
-        self.predict_one = self.create_policy_value_predict(1)   
         self.num = 0
 
         if model_params:
            self.train_batch.set_params(*model_params)
            self.predict_batch.set_params(*model_params)
-           self.predict_one.set_params(*model_params)
            pass
-
-    def conv_act(self, data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
-        # self convolution activation
-        assert(name!='' and name!=None)
-        pad = (int(kernel[0]/2), int(kernel[1]/2))
-        w = mx.sym.Variable(name+'_weight')
-        b = mx.sym.Variable(name+'_bias')
-        conv1 = mx.sym.Convolution(data=data, weight=w, bias=b, num_filter=num_filter, kernel=kernel, pad=pad, name=name)
-        act1 = conv1
-        if dobn:
-            gamma = mx.sym.Variable(name+'_gamma')
-            beta = mx.sym.Variable(name+'_beta')
-            mean = mx.sym.Variable(name+'_mean')
-            var = mx.sym.Variable(name+'_var')
-            bn = mx.sym.BatchNorm(data=conv1, gamma=gamma, beta=beta, moving_mean=mean, moving_var=var, name=name+'_bn')
-            act1 = bn
-        if act is not None and act!='':
-            #print('....', act)
-            act1 = mx.sym.Activation(data=act1, act_type=act, name=name+'_act')
-
-        return act1
-    
-    def fc_self(self, data, num_hidden, name=''):
-        assert(name!='' and name!=None)
-        w = mx.sym.Variable(name+'_weight')
-        b = mx.sym.Variable(name+'_bias')
-        fc_1 = mx.sym.FullyConnected(data, weight=w, bias=b, num_hidden=num_hidden, name=name)
-
-        return fc_1
-
-    def create_backbone(self, input_states):
-        """create the policy value network """   
-       
-        conv1 = self.conv_act(input_states, 64, (3, 3), name='conv1')
-        conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
-        conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
-        conv4 = self.conv_act(conv3, 128, (3, 3), name='conv4')
-        conv5 = self.conv_act(conv4, 256, (3, 3), name='conv5')
-        final = self.conv_act(conv5, 256, (3, 3), name='conv_final')
-
-        # action policy layers
-        conv3_1_1 = self.conv_act(final, 4, (1, 1), name='conv3_1_1')
-        flatten_1 = mx.sym.Flatten(conv3_1_1)       
-        flatten_1 = mx.sym.Dropout(flatten_1, p=0.5)
-        fc_3_1_1 = self.fc_self(flatten_1, self.board_height*self.board_width, name='fc_3_1_1')
-        action_1 = mx.sym.SoftmaxActivation(fc_3_1_1) 
-
-        # state value layers
-        conv3_2_1 = self.conv_act(final, 2, (1, 1), name='conv3_2_1')
-        flatten_2 = mx.sym.Flatten(conv3_2_1)
-        flatten_2 = mx.sym.Dropout(flatten_2, p=0.5)
-        fc_3_2_1 = self.fc_self(flatten_2, 1, name='fc_3_2_1')
-        evaluation = mx.sym.Activation(fc_3_2_1, act_type='tanh')
-
-        return action_1, evaluation
-
-
-
-    def create_backbone2(self, input_states):
-        """create the policy value network """   
-       
-        conv1 = self.conv_act(input_states, 32, (3, 3), name='conv1')
-        conv2 = self.conv_act(conv1, 64, (3, 3), name='conv2')
-        conv3 = self.conv_act(conv2, 128, (3, 3), name='conv3')
-        conv4 = self.conv_act(conv3, 128, (3, 3), name='conv4')
-        conv5 = self.conv_act(conv4, 128, (3, 3), name='conv5')
-        final = self.conv_act(conv5, 128, (3, 3), name='conv_final')
-
-        # action policy layers
-        conv3_1_1 = self.conv_act(final, 1024, (1, 1), name='conv3_1_1')
-        conv3_1_2 = self.conv_act(conv3_1_1, 1, (1, 1), act=None, dobn=False, name='conv3_1_2')
-        flatten_1 = mx.sym.Flatten(conv3_1_2)       
-        action_1 = mx.sym.SoftmaxActivation(flatten_1) 
-
-        # state value layers
-        conv3_2_1 = self.conv_act(final, 256, (1, 1), name='conv3_2_1')
-        conv3_2_2 = self.conv_act(conv3_2_1, 1, (1, 1), act=None, dobn=False, name='conv3_2_2')
-        flatten_2 = mx.sym.Flatten(conv3_2_2)
-        mean_2 = mx.sym.mean(flatten_2, axis=1, keepdims=True)
-        evaluation = mx.sym.Activation(mean_2, act_type='tanh')
-
-        return action_1, evaluation
 
     def create_policy_value_train(self, batch_size):
         input_states_shape = (batch_size, self.channelnum, self.board_height, self.board_width)
         input_states = mx.sym.Variable(name='input_states', shape=input_states_shape)
-        action_1, evaluation = self.create_backbone(input_states)
+        action_1, evaluation = create_backbone(input_states, self.board_height, self.board_width)
  
         mcts_probs_shape = (batch_size, self.board_height * self.board_width)
         mcts_probs = mx.sym.Variable(name='mcts_probs', shape=mcts_probs_shape)
@@ -159,7 +186,7 @@ class PolicyValueNet():
     def create_policy_value_predict(self, batch_size): 
         input_states_shape = (batch_size, self.channelnum, self.board_height, self.board_width)
         input_states = mx.sym.Variable(name='input_states', shape=input_states_shape)
-        action_1, evaluation = self.create_backbone(input_states)
+        action_1, evaluation = create_backbone(input_states, self.board_height, self.board_width)
         policy_value_output = mx.sym.Group([action_1, evaluation])
  
         pv_predict = mx.mod.Module(symbol=policy_value_output, 
@@ -184,45 +211,7 @@ class PolicyValueNet():
         #print(acts[0], vals[0])
 
         return acts, vals
-
-    def policy_value2(self, state_batch):
-        actsall = []
-        valsall = []
-        for state in state_batch:
-            state = state.reshape(1, self.channelnum, self.board_height, self.board_width)
-            #print(state.shape)
-            state_nd = mx.nd.array(state)
-            self.predict_one.forward(mx.io.DataBatch([state_nd]))
-            act, val = self.predict_one.get_outputs()
-            actsall.append(act[0].asnumpy())
-            valsall.append(val[0].asnumpy())
-        acts = np.asarray(actsall)
-        vals = np.asarray(valsall)
-        #print(acts.shape, vals.shape)
-
-        return acts, vals
        
-    def policy_value_fn(self, board):
-        """
-        input: board
-        output: a list of (action, probability) tuples for each available action and the score of the board state
-        """
-        legal_positions = board.availables
-        current_state = board.current_state().reshape(1, self.channelnum, self.board_height, self.board_width)
-        state_nd = mx.nd.array(current_state)
-        self.predict_one.forward(mx.io.DataBatch([state_nd]))
-        acts_probs, values = self.predict_one.get_outputs()
-        acts_probs = acts_probs.asnumpy()
-        values = values.asnumpy()
-        #print(acts_probs[0, :4])
-        legal_actprob = acts_probs[0][legal_positions] 
-        act_probs = zip(legal_positions, legal_actprob)
-       # print(len(legal_positions), legal_actprob.shape, acts_probs.shape)
-       # if len(legal_positions)==0:
-       #     exit()
-
-        return act_probs, values[0]
-
     def train_step(self, state_batch, mcts_probs, winner_batch, learning_rate):
         #print('hello training....')
         #print(mcts_probs[0], winner_batch[0])
@@ -237,7 +226,6 @@ class PolicyValueNet():
       
         args, auxs = self.train_batch.get_params()
         self.predict_batch.set_params(args, auxs)
-        self.predict_one.set_params(args, auxs)
 
         return loss.asnumpy(), entropy.asnumpy()
 
