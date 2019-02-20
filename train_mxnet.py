@@ -7,7 +7,6 @@ An implementation of the training pipeline of AlphaZero for Gomoku
 
 from __future__ import print_function
 import ray
-ray.init()
 
 
 import pickle
@@ -18,49 +17,66 @@ from game import Board, Game
 from mcts_pure import MCTSPlayer as MCTS_Pure
 from mcts_alphaZero import MCTSPlayer
 from policy_value_net_mxnet import PolicyValueNet, PolicyValueNet_SelfPlay  # Keras
+import logging
+from multiprocessing import Pool
+#import threading
 
+logging.basicConfig(filename='example.log',level=logging.DEBUG)
 
-@ray.remote
+#@ray.remote(num_gpus=1)
+#class Actor(threading.Thread):
 class Actor(object):
     def __init__(self, nameid='', gpuid=0, infos=None, init_model=None):
+        #super(Actor, self).__init__(name=nameid)
         '''
         infos:(board_height, board_width)
         '''
+        #logging.info('ray gpu list ', ray.get_gpu_ids())
+
         self.nameid = nameid
         self.gpuid = gpuid
         self.board_height = infos[0]
         self.board_width = infos[1]
         self.n_in_row = infos[2]
         self.temp = infos[3]
+        self.c_puct = infos[4]
+        self.n_playout = infos[5]
         self.game = Game(Board(width=self.board_width, height=self.board_height, n_in_row=self.n_in_row))
         if init_model:
             # start training from an initial policy-value net
-            selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+            self.selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
                                                    self.board_height,
                                                    model_params=init_model)
         else:
             # start training from a new policy-value net
-            selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+            self.selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
                                                    self.board_height)
-        selfplay_net.set_params(init_model)
-        self.mcts_player = MCTSPlayer(selfplay_net.policy_value_fn,
+        self.selfplay_net.set_params(init_model)
+        self.mcts_player = MCTSPlayer(self.selfplay_net.policy_value_fn,
                                   c_puct=self.c_puct,
                                   n_playout=self.n_playout,
                                   is_selfplay=1)
 
     def Set_Params(self, params):
-        selfplay_net.set_params(params)
+        self.selfplay_net.set_params(params)
 
     def Play(self):
+    #def run(self):
+        #logging.info(self.nameid + ' Play......0')
         winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp)
-        playdata = list(play_data)[:]
-        return play_data
+        #logging.info(self.nameid + 'Play......1')
+        self.playdata = list(play_data)[:]
+        return self.playdata
 
+
+def now_play(actor):
+    actor.Play()
 
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
-        self.parallel_games = 2
+        self.parallel_games = 1
+        #self.pool = Pool()
         self.board_width = 8
         self.board_height = 8
         self.n_in_row = 5
@@ -94,7 +110,11 @@ class TrainPipeline():
                                                    self.board_height)
 
         params = self.policy_value_net.get_policy_param()
-        self.mcts_players = [Actor.remote('gamer_'+str(gi), 2, (self.board_height, self.board_width, self.n_in_row, self.temp), params) for gi in range(self.parallel_games)]
+        infos = (self.board_height, self.board_width, self.n_in_row, self.temp, self.c_puct, self.n_playout)
+        logging.info('hello......0')
+        #self.mcts_players = [Actor.remote('gamer_'+str(gi), 2, infos, params) for gi in range(self.parallel_games)]
+        self.mcts_players = [Actor('gamer_'+str(gi), 2, infos, params) for gi in range(self.parallel_games)]
+        logging.info('hello......1')
 
     def get_equi_data(self, play_data):
         """augment the data set by rotation and flipping
@@ -120,7 +140,13 @@ class TrainPipeline():
 
     def collect_selfplay_data(self):
         """collect self-play data for training"""
-        datas = ray.get([self.mcts_players[pgi].remote() for pgi in range(self.parallel_games)])
+        logging.info('collect_selfplay_data....0')
+        #datas = ray.get([self.mcts_players[pgi].Play.remote() for pgi in range(self.parallel_games)])
+        datas = [self.mcts_players[pgi].Play() for pgi in range(self.parallel_games)]
+        #datas = [self.pool.apply(now_play, (self.mcts_players[pgi],)) for pgi in range(self.parallel_games)]
+        #datas = [self.mcts_players[pgi].start() for pgi in range(self.parallel_games)]
+        #datas = [self.mcts_players[pgi].join() for pgi in range(self.parallel_games)]
+        logging.info('collect_selfplay_data....1')
         self.episode_len = 0
         for pgi in range(self.parallel_games):
             play_data = datas[pgi]
@@ -213,7 +239,8 @@ class TrainPipeline():
                     params = self.policy_value_net.get_policy_param()
                     for spi in range(self.parallel_games):
                         gamer = self.mcts_players[spi]
-                        gamer.Set_Params.remote(params)
+                        #gamer.Set_Params.remote(params)
+                        gamer.Set_Params(params)
                         
                 # check the performance of the current model,
                 # and save the model params
@@ -236,6 +263,7 @@ class TrainPipeline():
 
 
 if __name__ == '__main__':
+    #ray.init(num_gpus=4)
     model_file = None #'current_policy.model'
     policy_param = None 
     if model_file is not None:

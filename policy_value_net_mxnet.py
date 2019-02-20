@@ -12,6 +12,8 @@ import sys
 import mxnet as mx
 import numpy as np
 import pickle
+import logging
+
 
 def conv_act(data, num_filter=32, kernel=(3, 3), stride=(1, 1), act='relu', dobn=True, name=''):
     # self convolution activation
@@ -71,6 +73,7 @@ def create_backbone(input_states, board_height, board_width):
 
 class PolicyValueNet_SelfPlay():
     def __init__(self, board_width, board_height, model_params=None):
+        #logging.info('PolicyValueNet_SelfPlay__init__......0')
         self.context_p = mx.gpu(2)
         self.channelnum = 5
         self.board_width = board_width
