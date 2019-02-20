@@ -21,7 +21,7 @@ from policy_value_net_mxnet import PolicyValueNet, PolicyValueNet_SelfPlay  # Ke
 
 
 @ray.remote
-class Gamer(object):
+class Actor(object):
     def __init__(self, nameid='', gpuid=0, infos=None, init_model=None):
         '''
         infos:(board_height, board_width)
@@ -94,7 +94,7 @@ class TrainPipeline():
                                                    self.board_height)
 
         params = self.policy_value_net.get_policy_param()
-        self.mcts_players = [Gamer.remote('gamer_'+str(gi), 2, (self.board_height, self.board_width, self.n_in_row, self.temp), params) for gi in range(self.parallel_games)]
+        self.mcts_players = [Actor.remote('gamer_'+str(gi), 2, (self.board_height, self.board_width, self.n_in_row, self.temp), params) for gi in range(self.parallel_games)]
 
     def get_equi_data(self, play_data):
         """augment the data set by rotation and flipping

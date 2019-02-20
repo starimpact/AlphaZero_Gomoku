@@ -7,7 +7,7 @@ Tested under Keras 2.0.5 with tensorflow-gpu 1.2.1 as backend
 """ 
 from __future__ import print_function
 import sys
-sys.path.insert(0, '/home/mingzhang/work/mxnetv1.2.python')
+#sys.path.insert(0, '/home/mingzhang/work/mxnetv1.2.python')
 
 import mxnet as mx
 import numpy as np
