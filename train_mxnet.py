@@ -6,6 +6,10 @@ An implementation of the training pipeline of AlphaZero for Gomoku
 """
 
 from __future__ import print_function
+import ray
+ray.init()
+
+
 import pickle
 import random
 import numpy as np
@@ -13,11 +17,44 @@ from collections import defaultdict, deque
 from game import Board, Game
 from mcts_pure import MCTSPlayer as MCTS_Pure
 from mcts_alphaZero import MCTSPlayer
-# from policy_value_net import PolicyValueNet  # Theano and Lasagne
-# from policy_value_net_pytorch import PolicyValueNet  # Pytorch
-# from policy_value_net_tensorflow import PolicyValueNet # Tensorflow
-# from policy_value_net_keras import PolicyValueNet # Keras
 from policy_value_net_mxnet import PolicyValueNet, PolicyValueNet_SelfPlay  # Keras
+
+
+@ray.remote
+class Gamer(object):
+    def __init__(self, nameid='', gpuid=0, infos=None, init_model=None):
+        '''
+        infos:(board_height, board_width)
+        '''
+        self.nameid = nameid
+        self.gpuid = gpuid
+        self.board_height = infos[0]
+        self.board_width = infos[1]
+        self.n_in_row = infos[2]
+        self.temp = infos[3]
+        self.game = Game(Board(width=self.board_width, height=self.board_height, n_in_row=self.n_in_row))
+        if init_model:
+            # start training from an initial policy-value net
+            selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+                                                   self.board_height,
+                                                   model_params=init_model)
+        else:
+            # start training from a new policy-value net
+            selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
+                                                   self.board_height)
+        selfplay_net.set_params(init_model)
+        self.mcts_player = MCTSPlayer(selfplay_net.policy_value_fn,
+                                  c_puct=self.c_puct,
+                                  n_playout=self.n_playout,
+                                  is_selfplay=1)
+
+    def Set_Params(self, params):
+        selfplay_net.set_params(params)
+
+    def Play(self):
+        winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp)
+        playdata = list(play_data)[:]
+        return play_data
 
 
 class TrainPipeline():
@@ -27,10 +64,6 @@ class TrainPipeline():
         self.board_width = 8
         self.board_height = 8
         self.n_in_row = 5
-        self.board = Board(width=self.board_width,
-                           height=self.board_height,
-                           n_in_row=self.n_in_row)
-        self.games = [Game(self.board) for i in range(self.parallel_games)]
         # training params
         self.learn_rate = 2e-4
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
@@ -61,23 +94,7 @@ class TrainPipeline():
                                                    self.board_height)
 
         params = self.policy_value_net.get_policy_param()
-        self.mcts_players = []
-        for i in range(self.parallel_games):
-            if init_model:
-                # start training from an initial policy-value net
-                selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
-                                                       self.board_height,
-                                                       model_params=init_model)
-            else:
-                # start training from a new policy-value net
-                selfplay_net = PolicyValueNet_SelfPlay(self.board_width,
-                                                       self.board_height)
-            selfplay_net.set_params(params)
-            mcts_player = MCTSPlayer(selfplay_net.policy_value_fn,
-                                      c_puct=self.c_puct,
-                                      n_playout=self.n_playout,
-                                      is_selfplay=1)
-            self.mcts_players.append([mcts_player, selfplay_net])
+        self.mcts_players = [Gamer.remote('gamer_'+str(gi), 2, (self.board_height, self.board_width, self.n_in_row, self.temp), params) for gi in range(self.parallel_games)]
 
     def get_equi_data(self, play_data):
         """augment the data set by rotation and flipping
@@ -101,32 +118,18 @@ class TrainPipeline():
                                     winner))
         return extend_data
 
-
-    def oneselfplay_data_parallel(game, mcts_player, temp):
-        winner, play_data = game.start_self_play(mcts_player,
-                                                 temp=temp)
-        play_data = list(play_data)[:]
-        return play_data
-
-
-    def oneselfplay_data(self, game, mcts_player, temp):
-        winner, play_data = game.start_self_play(mcts_player,
-                                                 temp=temp)
-        play_data = list(play_data)[:]
-        return play_data
-
     def collect_selfplay_data(self):
         """collect self-play data for training"""
+        datas = ray.get([self.mcts_players[pgi].remote() for pgi in range(self.parallel_games)])
         self.episode_len = 0
         for pgi in range(self.parallel_games):
-            play_data = self.oneselfplay_data(self.games[pgi], self.mcts_players[pgi][0], self.temp)
+            play_data = datas[pgi]
             _len = len(play_data)
             self.episode_len += _len
             print('game ', pgi, _len)
             play_data = self.get_equi_data(play_data)
             self.data_buffer.extend(play_data)
-        #print(len(self.data_buffer), n_games)
-
+ 
     def policy_update(self):
         """update the policy-value net"""
         mini_batch = random.sample(self.data_buffer, self.batch_size)
@@ -209,8 +212,8 @@ class TrainPipeline():
                     loss, entropy = self.policy_update()
                     params = self.policy_value_net.get_policy_param()
                     for spi in range(self.parallel_games):
-                        selfplay_net = self.mcts_players[spi][1]
-                        selfplay_net.set_params(params)
+                        gamer = self.mcts_players[spi]
+                        gamer.Set_Params.remote(params)
                         
                 # check the performance of the current model,
                 # and save the model params
