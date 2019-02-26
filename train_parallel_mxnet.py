@@ -39,7 +39,7 @@ class Actor(object):
         '''
         infos:(board_height, board_width)
         '''
-        logging.info('actor %d'%(comm_rank))
+        logging.info('actor %d: %s'%(comm_rank, nameid))
 
         self.nameid = nameid
         self.gpuid = gpuid
@@ -84,7 +84,7 @@ class TrainPipeline():
         self.board_height = 8
         self.n_in_row = 5
         # training params
-        self.learn_rate = 2e-4
+        self.learn_rate = 1e-4
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
@@ -194,14 +194,15 @@ class TrainPipeline():
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
             )
-            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+            #if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+            if kl > self.kl_targ:  # early stopping if D_KL diverges badly
                 logging.info('early stopping:%d, %d'%(i, self.epochs))
                 break
         # adaptively adjust the learning rate
-        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
-            self.lr_multiplier /= 1.5
-        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
-            self.lr_multiplier *= 1.5
+#        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
+#            self.lr_multiplier /= 1.5
+#        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
+#            self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
                              np.var(np.array(winner_batch) - old_v.flatten()) /
@@ -252,12 +253,14 @@ class TrainPipeline():
         try:
             for i in range(self.game_batch_num):
                 recv_count = 1
+                logging.info('sending params to actors...')
                 for nodei in range(1, comm_size):
-                    logging.info('sending params to actor %d ...'%(nodei))
+                    #logging.info('sending params to actor %d ...'%(nodei))
                     comm.send(self.params, dest=nodei)
                 self.collect_selfplay_data()
+                logging.info('receiving data from actors...')
                 for nodei in range(1, comm_size):
-                    logging.info('receiving data from actor %d ...'%(nodei))
+                    #logging.info('receiving data from actor %d ...'%(nodei))
                     data = comm.recv(source=nodei)
                     self.data_buffer.extend(data)
                     recv_count += 1
