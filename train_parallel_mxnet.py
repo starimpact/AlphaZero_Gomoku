@@ -89,7 +89,7 @@ class TrainPipeline():
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 128*comm_size
+        self.buffer_size = 128*(comm_size+1)
         self.batch_size = 128*comm_size  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
@@ -265,7 +265,7 @@ class TrainPipeline():
                     recv_count += 1
                 logging.info("batch i:{}, recv count:{}, buffer_len:{}".format(
                         i+1, recv_count, len(self.data_buffer)))
-                if len(self.data_buffer) > self.batch_size:
+                if len(self.data_buffer) >= self.batch_size:
                     loss, entropy = self.policy_update()
                     self.params = self.policy_value_net.get_policy_param()
                     self.mcts_evaluater.Set_Params(self.params)
