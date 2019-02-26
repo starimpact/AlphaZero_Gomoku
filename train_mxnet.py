@@ -6,7 +6,6 @@ An implementation of the training pipeline of AlphaZero for Gomoku
 """
 
 from __future__ import print_function
-import ray
 
 
 import pickle
@@ -18,7 +17,6 @@ from mcts_pure import MCTSPlayer as MCTS_Pure
 from mcts_alphaZero import MCTSPlayer
 from policy_value_net_mxnet import PolicyValueNet, PolicyValueNet_SelfPlay  # Keras
 import logging
-from multiprocessing import Pool
 #import threading
 
 logging.basicConfig(filename='example.log',level=logging.DEBUG)
@@ -81,17 +79,17 @@ class TrainPipeline():
         self.board_height = 8
         self.n_in_row = 5
         # training params
-        self.learn_rate = 2e-4
+        self.learn_rate = 1e-4
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 1100
-        self.batch_size = 1024  # mini-batch size for training
+        self.buffer_size = 200
+        self.batch_size = 128  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
-        self.kl_targ = 0.02
+        self.kl_targ = 0.001
         self.check_freq = 1000
         self.game_batch_num = 150000
         self.best_win_ratio = 0.0
@@ -114,6 +112,7 @@ class TrainPipeline():
         logging.info('hello......0')
         #self.mcts_players = [Actor.remote('gamer_'+str(gi), 2, infos, params) for gi in range(self.parallel_games)]
         self.mcts_players = [Actor('gamer_'+str(gi), 2, infos, params) for gi in range(self.parallel_games)]
+        self.mcts_evaluater = Actor('evaluater', 2, infos, params)
         logging.info('hello......1')
 
     def get_equi_data(self, play_data):
@@ -175,14 +174,14 @@ class TrainPipeline():
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
             )
-            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+            if kl > self.kl_targ * 1:  # early stopping if D_KL diverges badly
                 print('early stopping:', i, self.epochs)
                 break
         # adaptively adjust the learning rate
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
-            self.lr_multiplier /= 1.5
+            self.lr_multiplier /= 1.0
         elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
-            self.lr_multiplier *= 1.5
+            self.lr_multiplier *= 1.0
 
         explained_var_old = (1 -
                              np.var(np.array(winner_batch) - old_v.flatten()) /
@@ -209,14 +208,14 @@ class TrainPipeline():
         Evaluate the trained policy by playing against the pure MCTS player
         Note: this is only for monitoring the progress of training
         """
-        current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
+        current_mcts_player = MCTSPlayer(self.mcts_evaluater.selfplay_net.policy_value_fn,
                                          c_puct=self.c_puct,
                                          n_playout=self.n_playout)
         pure_mcts_player = MCTS_Pure(c_puct=5,
                                      n_playout=self.pure_mcts_playout_num)
         win_cnt = defaultdict(int)
         for i in range(n_games):
-            winner = self.game.start_play(current_mcts_player,
+            winner = self.mcts_evaluater.game.start_play(current_mcts_player,
                                           pure_mcts_player,
                                           start_player=i % 2,
                                           is_shown=0)
@@ -237,6 +236,7 @@ class TrainPipeline():
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_update()
                     params = self.policy_value_net.get_policy_param()
+                    self.mcts_evaluater.Set_Params(params)
                     for spi in range(self.parallel_games):
                         gamer = self.mcts_players[spi]
                         #gamer.Set_Params.remote(params)
@@ -264,7 +264,7 @@ class TrainPipeline():
 
 if __name__ == '__main__':
     #ray.init(num_gpus=4)
-    model_file = None #'current_policy.model'
+    model_file = 'current_policy_feb_23_0.model'
     policy_param = None 
     if model_file is not None:
         print('loading...', model_file)

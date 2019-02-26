@@ -23,9 +23,14 @@ comm_rank = comm.Get_rank()
 comm_size = comm.Get_size()
 
 
-logging.basicConfig(filename='example.log',level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG,
+                #format='%(asctime)s %(filename)s[line:%(lineno)d] %(levelname)s %(message)s',
+                format='%(asctime)s: %(message)s',
+                datefmt='%a, %d %b %Y %H:%M:%S',
+                filename='log/parallel_'+str(comm_rank)+'.log',
+                filemode='w')
 
-print('I am process ', comm_rank, comm_size)
+logging.info('I am process %d %d'%(comm_rank, comm_size))
 #@ray.remote(num_gpus=1)
 #class Actor(threading.Thread):
 class Actor(object):
@@ -34,7 +39,7 @@ class Actor(object):
         '''
         infos:(board_height, board_width)
         '''
-        print('actor ', comm_rank)
+        logging.info('actor %d'%(comm_rank))
 
         self.nameid = nameid
         self.gpuid = gpuid
@@ -72,6 +77,7 @@ class Actor(object):
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
+        self.selfplay_count = 0
         self.parallel_games = 1
         #self.pool = Pool()
         self.board_width = 8
@@ -83,8 +89,8 @@ class TrainPipeline():
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 1100
-        self.batch_size = 1024  # mini-batch size for training
+        self.buffer_size = 128*comm_size
+        self.batch_size = 128*comm_size  # mini-batch size for training
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
@@ -110,23 +116,25 @@ class TrainPipeline():
                                                        self.board_height)
 
         self.mcts_player = None
-        params = None
+        self.mcts_evaluater = None
+        self.params = None
         infos = (self.board_height, self.board_width, self.n_in_row, self.temp, self.c_puct, self.n_playout)
 
         if comm_rank>0:
-            print('rank ', comm_rank, ' before recv ')
-            params = comm.recv(source=0)
-            print('rank ', comm_rank, ' after recv ')
-            #self.mcts_player = Actor('gamer_'+str(comm_rank), 2, infos, params)
+            logging.info('rank '+str(comm_rank)+' before recv ')
+            self.params = comm.recv(source=0)
+            logging.info('rank '+str(comm_rank)+' after recv ')
+            self.mcts_player = Actor('gamer_'+str(comm_rank), 2, infos, self.params)
 
         if self.policy_value_net and comm_rank==0:
-            params = self.policy_value_net.get_policy_param()
-            print('rank ', comm_rank, ' before bcast')
+            self.params = self.policy_value_net.get_policy_param()
+            logging.info('rank '+str(comm_rank)+' before bcast')
             #comm.bcast('params', root=0)
             for pi in range(1, comm_size):
-                comm.send(params, dest=pi)
-            print('rank ', comm_rank, ' after bcast')
-            #self.mcts_player = Actor('gamer_'+str(comm_rank), 2, infos, params)
+                comm.send(self.params, dest=pi)
+            logging.info('rank '+str(comm_rank)+' after bcast')
+            self.mcts_player = Actor('gamer_'+str(comm_rank), 2, infos, self.params)
+            self.mcts_evaluater = Actor('evaluater', 2, infos, self.params)
 
     def get_equi_data(self, play_data):
         """augment the data set by rotation and flipping
@@ -154,13 +162,18 @@ class TrainPipeline():
         """collect self-play data for training"""
         datas = self.mcts_player.Play()
         self.episode_len = 0
-        for pgi in range(self.parallel_games):
-            play_data = datas[pgi]
-            _len = len(play_data)
-            self.episode_len += _len
-            print('game ', pgi, _len)
-            play_data = self.get_equi_data(play_data)
-            self.data_buffer.extend(play_data)
+        self.data_buffer = []
+
+        _len = len(datas)
+        self.episode_len += _len
+        play_data = self.get_equi_data(datas)
+        self.data_buffer.extend(play_data)
+        logging.info('gamer_%d %d collection finished.'%(comm_rank, self.episode_len))
+
+        if comm_rank > 0:
+            logging.info('gamer_%d %d sending data started...'%(comm_rank, self.episode_len))
+            comm.send(self.data_buffer, dest=0)
+            logging.info('gamer_%d %d sending data finished...'%(comm_rank, self.episode_len))
  
     def policy_update(self):
         """update the policy-value net"""
@@ -182,7 +195,7 @@ class TrainPipeline():
                     axis=1)
             )
             if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
-                print('early stopping:', i, self.epochs)
+                logging.info('early stopping:%d, %d'%(i, self.epochs))
                 break
         # adaptively adjust the learning rate
         if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
@@ -196,7 +209,7 @@ class TrainPipeline():
         explained_var_new = (1 -
                              np.var(np.array(winner_batch) - new_v.flatten()) /
                              np.var(np.array(winner_batch)))
-        print(("kl:{:.4f},"
+        logging.info(("kl:{:.4f},"
                "lr:{:.1e},"
                "loss:{},"
                "entropy:{},"
@@ -215,14 +228,14 @@ class TrainPipeline():
         Evaluate the trained policy by playing against the pure MCTS player
         Note: this is only for monitoring the progress of training
         """
-        current_mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
+        current_mcts_player = MCTSPlayer(self.mcts_evaluater.policy_value_fn,
                                          c_puct=self.c_puct,
                                          n_playout=self.n_playout)
         pure_mcts_player = MCTS_Pure(c_puct=5,
                                      n_playout=self.pure_mcts_playout_num)
         win_cnt = defaultdict(int)
         for i in range(n_games):
-            winner = self.game.start_play(current_mcts_player,
+            winner = self.mcts_evaluater.game.start_play(current_mcts_player,
                                           pure_mcts_player,
                                           start_player=i % 2,
                                           is_shown=0)
@@ -233,20 +246,28 @@ class TrainPipeline():
                 win_cnt[1], win_cnt[2], win_cnt[-1]))
         return win_ratio
 
+
     def run(self):
         """run the training pipeline"""
         try:
             for i in range(self.game_batch_num):
+                recv_count = 1
+                for nodei in range(1, comm_size):
+                    logging.info('sending params to actor %d ...'%(nodei))
+                    comm.send(self.params, dest=nodei)
                 self.collect_selfplay_data()
-                print("batch i:{}, episode_len:{}, buffer_len:{}".format(
-                        i+1, self.episode_len, len(self.data_buffer)))
+                for nodei in range(1, comm_size):
+                    logging.info('receiving data from actor %d ...'%(nodei))
+                    data = comm.recv(source=nodei)
+                    self.data_buffer.extend(data)
+                    recv_count += 1
+                logging.info("batch i:{}, recv count:{}, buffer_len:{}".format(
+                        i+1, recv_count, len(self.data_buffer)))
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_update()
-                    params = self.policy_value_net.get_policy_param()
-                    for spi in range(self.parallel_games):
-                        gamer = self.mcts_players[spi]
-                        #gamer.Set_Params.remote(params)
-                        gamer.Set_Params(params)
+                    self.params = self.policy_value_net.get_policy_param()
+                    self.mcts_evaluater.Set_Params(self.params)
+                    self.mcts_player.Set_Params(self.params)
                         
                 # check the performance of the current model,
                 # and save the model params
@@ -267,19 +288,34 @@ class TrainPipeline():
         except KeyboardInterrupt:
             print('\n\rquit')
 
-
+    def run_selfplay(self):
+        logging.info('selfplayer ' + str(comm_rank) + ' is started.....')
+        while(True):
+            cmd = comm.recv(source=0)
+            if cmd is not None:
+                self.params = cmd
+                self.mcts_player.Set_Params(self.params)
+                self.selfplay_count += 1
+                logging.info('start selfplaying...%d'%(self.selfplay_count))
+                self.collect_selfplay_data()
+                logging.info('finished selfplaying...%d'%(self.selfplay_count))
+            time.sleep(1)
+ 
 if __name__ == '__main__':
     #ray.init(num_gpus=4)
     model_file = None #'current_policy.model'
     policy_param = None 
     if model_file is not None:
-        print('loading...', model_file)
+        logging.info('loading...%s'%(model_file))
         try:
             policy_param = pickle.load(open(model_file, 'rb'))
         except:
             policy_param = pickle.load(open(model_file, 'rb'),
                                        encoding='bytes')  # To support python3
     training_pipeline = TrainPipeline(policy_param)
-    #training_pipeline.run()
-    print('rank ', comm_rank, ' bye bye...')
+    if comm_rank>0:
+        training_pipeline.run_selfplay()
+    if comm_rank==0:
+        training_pipeline.run()
+    logging.info('rank ' + str(comm_rank) + ' bye bye...')
 

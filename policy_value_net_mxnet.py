@@ -74,7 +74,7 @@ def create_backbone(input_states, board_height, board_width):
 class PolicyValueNet_SelfPlay():
     def __init__(self, board_width, board_height, model_params=None):
         #logging.info('PolicyValueNet_SelfPlay__init__......0')
-        self.context_p = mx.gpu(2)
+        self.context_p = mx.gpu(1)
         self.channelnum = 5
         self.board_width = board_width
         self.board_height = board_height 
@@ -131,7 +131,7 @@ class PolicyValueNet_SelfPlay():
 class PolicyValueNet():
     """policy-value network """
     def __init__(self, board_width, board_height, model_params=None):
-        self.context = mx.gpu(1)
+        self.context = mx.gpu(0)
         self.batchsize = 1024 #must same to the TrainPipeline's self.batch_size.
         self.channelnum = 5
         self.board_width = board_width
