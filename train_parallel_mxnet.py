@@ -263,8 +263,8 @@ class TrainPipeline():
                     data = comm.recv(source=nodei)
                     self.data_buffer.extend(data)
                     recv_count += 1
-                logging.info("batch i:{}, recv count:{}, buffer_len:{}".format(
-                        i+1, recv_count, len(self.data_buffer)))
+                logging.info("batch i:{}, batchsize:{}, recv count:{}, buffer_len:{}".format(
+                        i+1, self.batch_size, recv_count, len(self.data_buffer)))
                 if len(self.data_buffer) >= self.batch_size:
                     loss, entropy = self.policy_update()
                     self.params = self.policy_value_net.get_policy_param()
