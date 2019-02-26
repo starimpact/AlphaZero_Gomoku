@@ -162,7 +162,6 @@ class TrainPipeline():
         """collect self-play data for training"""
         datas = self.mcts_player.Play()
         self.episode_len = 0
-        self.data_buffer = []
 
         _len = len(datas)
         self.episode_len += _len
