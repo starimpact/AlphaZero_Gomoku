@@ -54,7 +54,7 @@ class Board(object):
             return -1
         return move
 
-    def current_state(self):
+    def current_state_new(self):
         """return the board state from the perspective of the current player.
         state shape: (histlen*2+1)*width*height
         """
@@ -82,7 +82,7 @@ class Board(object):
             square_state[-1][:, :] = 1.0  # indicate the colour to play
         return square_state[:, ::-1, :]
 
-    def current_state_old(self):
+    def current_state(self):
         """return the board state from the perspective of the current player.
         state shape: 4*width*height
         """

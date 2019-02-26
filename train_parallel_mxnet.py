@@ -84,7 +84,7 @@ class TrainPipeline():
         self.board_height = 8
         self.n_in_row = 5
         # training params
-        self.learn_rate = 1e-4
+        self.learn_rate = 1e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
@@ -107,12 +107,12 @@ class TrainPipeline():
         if comm_rank == 0:
             if init_model:
                 # start training from an initial policy-value net
-                self.policy_value_net = PolicyValueNet(self.board_width,
+                self.policy_value_net = PolicyValueNet(self.batch_size, self.board_width,
                                                        self.board_height,
                                                        model_params=init_model)
             else:
                 # start training from a new policy-value net
-                self.policy_value_net = PolicyValueNet(self.board_width,
+                self.policy_value_net = PolicyValueNet(self.batch_size, self.board_width,
                                                        self.board_height)
 
         self.mcts_player = None
