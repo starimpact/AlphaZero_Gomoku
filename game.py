@@ -190,6 +190,32 @@ class Game(object):
                     print('_'.center(8), end='')
             print('\r\n\r\n')
 
+    def graphic_log(self, board, player1, player2):
+        """Draw the board and show game info"""
+        width = board.width
+        height = board.height
+
+        chess_result = "\nPlayer %d"%(player1) + "with X".rjust(3) + "\n"
+        chess_result += "Player %d"%(player2) + "with O".rjust(3) + "\n"
+        chess_result += "\n"
+        for x in range(width):
+            chess_result += "{0:4}".format(x)
+        chess_result += "\n"
+        for i in range(height - 1, -1, -1):
+            chess_result += "{0:2d}".format(i)
+            for j in range(width):
+                loc = i * width + j
+                p = board.states.get(loc, -1)
+                if p == player1:
+                    chess_result += 'X'.center(4)
+                elif p == player2:
+                    chess_result += 'O'.center(4)
+                else:
+                    chess_result += '_'.center(4)
+            chess_result += '\n\n'
+        logging.info(chess_result)
+
+
     def start_play(self, player1, player2, start_player=0, is_shown=1):
         """start a game between two players"""
         if start_player not in (0, 1):
@@ -235,10 +261,12 @@ class Game(object):
             current_players.append(self.board.current_player)
             # perform a move
             self.board.do_move(move)
-            if is_shown:
-                self.graphic(self.board, p1, p2)
+
             end, winner = self.board.game_end()
             if end:
+                if is_shown:
+                    #self.graphic(self.board, p1, p2)
+                    self.graphic_log(self.board, p1, p2)
                 # winner from the perspective of the current player of each state
                 winners_z = np.zeros(len(current_players))
                 if winner != -1:
