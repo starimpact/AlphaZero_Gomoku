@@ -47,12 +47,11 @@ def fc_self(data, num_hidden, name=''):
 def create_backbone(input_states, board_height, board_width):
     """create the policy value network """   
    
-    conv1 = conv_act(input_states, 64, (3, 3), name='conv1')
+    conv1 = conv_act(input_states, 32, (3, 3), name='conv1')
     conv2 = conv_act(conv1, 64, (3, 3), name='conv2')
     conv3 = conv_act(conv2, 128, (3, 3), name='conv3')
     conv4 = conv_act(conv3, 128, (3, 3), name='conv4')
-    conv5 = conv_act(conv4, 256, (3, 3), name='conv5')
-    final = conv_act(conv5, 256, (3, 3), name='conv_final')
+    final = conv_act(conv4, 128, (3, 3), name='conv_final')
 
     # action policy layers
     conv3_1_1 = conv_act(final, 4, (1, 1), name='conv3_1_1')
@@ -216,7 +215,7 @@ class PolicyValueNet():
         return acts, vals
        
     def train_step(self, state_batch, mcts_probs, winner_batch, learning_rate):
-        #print('hello training....')
+        #print('hello training....', len(state_batch), self.batchsize)
         #print(mcts_probs[0], winner_batch[0])
         self.train_batch._optimizer.lr = learning_rate
         state_batch = mx.nd.array(np.asarray(state_batch).reshape(-1, self.channelnum, self.board_height, self.board_width))

@@ -5,6 +5,7 @@
 
 from __future__ import print_function
 import numpy as np
+import logging
 
 
 class Board(object):
@@ -247,7 +248,7 @@ class Game(object):
                 player.reset_player()
                 if is_shown:
                     if winner != -1:
-                        print("Game end. Winner is player:", winner)
+                        logging.info("Game end. Winner is player: %d"%winner)
                     else:
-                        print("Game end. Tie")
+                        logging.info("Game end. Tie")
                 return winner, zip(states, mcts_probs, winners_z)

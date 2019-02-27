@@ -69,7 +69,7 @@ class Actor(object):
         self.selfplay_net.set_params(params)
 
     def Play(self):
-        winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp)
+        winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=1)
         self.playdata = list(play_data)[:]
         return self.playdata
 
@@ -84,7 +84,7 @@ class TrainPipeline():
         self.board_height = 8
         self.n_in_row = 5
         # training params
-        self.learn_rate = 1e-3
+        self.learn_rate = 1e-5
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
@@ -94,7 +94,7 @@ class TrainPipeline():
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
-        self.kl_targ = 0.02
+        self.kl_targ = 0.01
         self.check_freq = 1000
         self.game_batch_num = 150000
         self.best_win_ratio = 0.0
@@ -198,10 +198,10 @@ class TrainPipeline():
                 logging.info('early stopping:%d, %d'%(i, self.epochs))
                 break
         # adaptively adjust the learning rate
-#        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
-#            self.lr_multiplier /= 1.5
-#        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
-#            self.lr_multiplier *= 1.5
+        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
+            self.lr_multiplier /= 1.5
+        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
+            self.lr_multiplier *= 1.5
 
         explained_var_old = (1 -
                              np.var(np.array(winner_batch) - old_v.flatten()) /
@@ -273,7 +273,7 @@ class TrainPipeline():
                         
                 # check the performance of the current model,
                 # and save the model params
-                if (i+1) % 50 == 0:
+                if (i+1) % 10 == 0:
                     self.policy_value_net.save_model('./current_policy.model')
                 if (i+1) % self.check_freq == 0:
                     print("current self-play batch: {}".format(i+1))
@@ -305,7 +305,7 @@ class TrainPipeline():
  
 if __name__ == '__main__':
     #ray.init(num_gpus=4)
-    model_file = None #'current_policy.model'
+    model_file = 'current_policy.model'
     policy_param = None 
     if model_file is not None:
         logging.info('loading...%s'%(model_file))
