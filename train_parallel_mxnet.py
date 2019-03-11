@@ -319,8 +319,8 @@ class TrainPipeline():
                 self.collect_selfplay_data()
                 logging.info('receiving data from actors...')
                 for nodei in range(1, comm_size):
-                    #logging.info('receiving data from actor %d ...'%(nodei))
                     data = comm.recv(source=nodei)
+                    logging.info('receiving data from actor %d: %d...'%(nodei, len(data)))
                     self.data_buffer.extend(data)
                     recv_count += 1
                 logging.info("batch i:{}, batchsize:{}, recv count:{}, buffer_len:{}".format(
