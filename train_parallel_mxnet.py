@@ -77,6 +77,7 @@ class Actor(object):
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
+        self.train_sampling_times = 100
         self.selfplay_count = 0
         self.parallel_games = 1
         #self.pool = Pool()
@@ -84,18 +85,22 @@ class TrainPipeline():
         self.board_height = 8
         self.n_in_row = 5
         # training params
-        self.learn_rate = 1e-5
+        self.learn_rate = 1e-3
         self.lr_multiplier = 1.0  # adaptively adjust the learning rate based on KL
         self.temp = 1.0  # the temperature param
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
-        self.buffer_size = 128*(comm_size+1)
-        self.batch_size = 128*comm_size  # mini-batch size for training
+        self.agent_sampling_size = 128
+        self.batch_size = agent_sampling_size*comm_size  # mini-batch size for training
+        if comm_rank == 0:
+            self.buffer_size = agent_sampling_size*(comm_size*self.train_sampling_times)
+        else:
+            self.buffer_size = agent_sampling_size
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
-        self.kl_targ = 0.01
-        self.check_freq = 1000
+        self.kl_targ = 0.02
+        self.check_freq = 100
         self.game_batch_num = 150000
         self.best_win_ratio = 0.0
         # num of simulations used for the pure mcts, which is used as
@@ -173,8 +178,8 @@ class TrainPipeline():
             logging.info('gamer_%d %d sending data started...'%(comm_rank, self.episode_len))
             comm.send(self.data_buffer, dest=0)
             logging.info('gamer_%d %d sending data finished...'%(comm_rank, self.episode_len))
- 
-    def policy_update(self):
+
+    def policy_update_old(self):
         """update the policy-value net"""
         mini_batch = random.sample(self.data_buffer, self.batch_size)
         state_batch = [data[0] for data in mini_batch]
@@ -193,8 +198,8 @@ class TrainPipeline():
                     np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
                     axis=1)
             )
-            #if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
-            if kl > self.kl_targ:  # early stopping if D_KL diverges badly
+            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+            #if kl > self.kl_targ:  # early stopping if D_KL diverges badly
                 logging.info('early stopping:%d, %d'%(i, self.epochs))
                 break
         # adaptively adjust the learning rate
@@ -221,6 +226,58 @@ class TrainPipeline():
                         entropy,
                         explained_var_old,
                         explained_var_new))
+        return loss, entropy
+
+
+ 
+    def policy_update(self, train_i):
+        """update the policy-value net"""
+        mini_batch = random.sample(self.data_buffer, self.batch_size)
+        state_batch = [data[0] for data in mini_batch]
+        mcts_probs_batch = [data[1] for data in mini_batch]
+        winner_batch = [data[2] for data in mini_batch]
+        old_probs, old_v = self.policy_value_net.policy_value(state_batch)
+        learn_rate = self.learn_rate*self.lr_multiplier
+        for i in range(self.epochs):
+            loss, entropy = self.policy_value_net.train_step(
+                    state_batch,
+                    mcts_probs_batch,
+                    winner_batch,
+                    learn_rate)
+            new_probs, new_v = self.policy_value_net.policy_value(state_batch)
+            kl = np.mean(np.sum(old_probs * (
+                    np.log(old_probs + 1e-10) - np.log(new_probs + 1e-10)),
+                    axis=1)
+            )
+            if kl > self.kl_targ * 4:  # early stopping if D_KL diverges badly
+            #if kl > self.kl_targ:  # early stopping if D_KL diverges badly
+                logging.info('early stopping:%d, %d'%(i, self.epochs))
+                break
+        # adaptively adjust the learning rate
+        if kl > self.kl_targ * 2 and self.lr_multiplier > 0.05:
+            self.lr_multiplier /= 1.5
+        elif kl < self.kl_targ / 2 and self.lr_multiplier < 20:
+            self.lr_multiplier *= 1.5
+
+        explained_var_old = (1 -
+                             np.var(np.array(winner_batch) - old_v.flatten()) /
+                             np.var(np.array(winner_batch)))
+        explained_var_new = (1 -
+                             np.var(np.array(winner_batch) - new_v.flatten()) /
+                             np.var(np.array(winner_batch)))
+        if train_i%10==0: 
+            logging.info(("kl:{:.4f},"
+                   "lr:{:.1e},"
+                   "loss:{},"
+                   "entropy:{},"
+                   "explained_var_old:{:.3f},"
+                   "explained_var_new:{:.3f}"
+                   ).format(kl,
+                            learn_rate,
+                            loss,
+                            entropy,
+                            explained_var_old,
+                            explained_var_new))
         return loss, entropy
 
     def policy_evaluate(self, n_games=10):
@@ -265,8 +322,9 @@ class TrainPipeline():
                     recv_count += 1
                 logging.info("batch i:{}, batchsize:{}, recv count:{}, buffer_len:{}".format(
                         i+1, self.batch_size, recv_count, len(self.data_buffer)))
-                if len(self.data_buffer) >= self.batch_size:
-                    loss, entropy = self.policy_update()
+                if len(self.data_buffer) >= self.buffer_size:
+                    for train_i in range(self.train_sampling_num):
+                        loss, entropy = self.policy_update(train_i)
                     self.params = self.policy_value_net.get_policy_param()
                     self.mcts_evaluater.Set_Params(self.params)
                     self.mcts_player.Set_Params(self.params)
@@ -305,7 +363,7 @@ class TrainPipeline():
  
 if __name__ == '__main__':
     #ray.init(num_gpus=4)
-    model_file = 'current_policy.model'
+    model_file = 'current_policy_200.model'
     policy_param = None 
     if model_file is not None:
         logging.info('loading...%s'%(model_file))

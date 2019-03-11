@@ -175,6 +175,32 @@ class Game(object):
         print("Player", player2, "with O".rjust(3))
         print()
         for x in range(width):
+            print("{0:4}".format(x), end='')
+        print('\r\n')
+        for i in range(height - 1, -1, -1):
+            print("{0:2d}".format(i), end='')
+            for j in range(width):
+                loc = i * width + j
+                p = board.states.get(loc, -1)
+                if p == player1:
+                    print('X'.center(4), end='')
+                elif p == player2:
+                    print('O'.center(4), end='')
+                else:
+                    print('_'.center(4), end='')
+            print('\r\n')
+
+
+
+    def graphic_old(self, board, player1, player2):
+        """Draw the board and show game info"""
+        width = board.width
+        height = board.height
+
+        print("Player", player1, "with X".rjust(3))
+        print("Player", player2, "with O".rjust(3))
+        print()
+        for x in range(width):
             print("{0:8}".format(x), end='')
         print('\r\n')
         for i in range(height - 1, -1, -1):

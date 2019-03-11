@@ -49,23 +49,22 @@ def create_backbone(input_states, board_height, board_width):
    
     conv1 = conv_act(input_states, 32, (3, 3), name='conv1')
     conv2 = conv_act(conv1, 64, (3, 3), name='conv2')
-    conv3 = conv_act(conv2, 128, (3, 3), name='conv3')
-    conv4 = conv_act(conv3, 128, (3, 3), name='conv4')
-    final = conv_act(conv4, 128, (3, 3), name='conv_final')
+    final = conv_act(conv2, 128, (3, 3), name='conv_final')
 
     # action policy layers
     conv3_1_1 = conv_act(final, 4, (1, 1), name='conv3_1_1')
     flatten_1 = mx.sym.Flatten(conv3_1_1)       
-    flatten_1 = mx.sym.Dropout(flatten_1, p=0.5)
+    #flatten_1 = mx.sym.Dropout(flatten_1, p=0.5)
     fc_3_1_1 = fc_self(flatten_1, board_height*board_width, name='fc_3_1_1')
     action_1 = mx.sym.SoftmaxActivation(fc_3_1_1) 
 
     # state value layers
     conv3_2_1 = conv_act(final, 2, (1, 1), name='conv3_2_1')
     flatten_2 = mx.sym.Flatten(conv3_2_1)
-    flatten_2 = mx.sym.Dropout(flatten_2, p=0.5)
-    fc_3_2_1 = fc_self(flatten_2, 1, name='fc_3_2_1')
-    evaluation = mx.sym.Activation(fc_3_2_1, act_type='tanh')
+    #flatten_2 = mx.sym.Dropout(flatten_2, p=0.5)
+    fc_3_2_1 = fc_self(flatten_2, 64, name='fc_3_2_1')
+    fc_3_2_2 = fc_self(fc_3_2_1, 1, name='fc_3_2_2')
+    evaluation = mx.sym.Activation(fc_3_2_2, act_type='tanh')
 
     return action_1, evaluation
 
