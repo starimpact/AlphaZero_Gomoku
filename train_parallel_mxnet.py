@@ -325,7 +325,7 @@ class TrainPipeline():
                     recv_count += 1
                 logging.info("batch i:{}, batchsize:{}, recv count:{}, buffer_len:{}".format(
                         i+1, self.batch_size, recv_count, len(self.data_buffer)))
-                if len(self.data_buffer) >= self.batch_size:
+                if len(self.data_buffer) >= self.buffer_size:
                     for train_i in range(self.train_sampling_times):
                         loss, entropy = self.policy_update(train_i)
                     self.params = self.policy_value_net.get_policy_param()
