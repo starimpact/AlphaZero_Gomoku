@@ -77,7 +77,7 @@ class Actor(object):
 class TrainPipeline():
     def __init__(self, init_model=None):
         # params of the board and the game
-        self.train_sampling_times = 100
+        self.train_sampling_times = 20
         self.selfplay_count = 0
         self.parallel_games = 1
         #self.pool = Pool()
@@ -94,9 +94,10 @@ class TrainPipeline():
         self.batch_size = self.agent_sampling_size*comm_size  # mini-batch size for training
         if comm_rank == 0:
             self.buffer_size = self.agent_sampling_size*(comm_size*self.train_sampling_times)
+            self.data_buffer = deque(maxlen=self.buffer_size)
         else:
-            self.buffer_size = self.agent_sampling_size
-        self.data_buffer = deque(maxlen=self.buffer_size)
+            self.buffer_size = 0
+            self.data_buffer = []
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
         self.kl_targ = 0.02
@@ -171,10 +172,12 @@ class TrainPipeline():
         _len = len(datas)
         self.episode_len += _len
         play_data = self.get_equi_data(datas)
-        self.data_buffer.extend(play_data)
+        if comm_rank == 0:
+            self.data_buffer.extend(play_data)
         logging.info('gamer_%d %d collection finished.'%(comm_rank, self.episode_len))
 
         if comm_rank > 0:
+            self.data_buffer = play_data
             logging.info('gamer_%d %d sending data started...'%(comm_rank, self.episode_len))
             comm.send(self.data_buffer, dest=0)
             logging.info('gamer_%d %d sending data finished...'%(comm_rank, self.episode_len))
@@ -265,7 +268,7 @@ class TrainPipeline():
         explained_var_new = (1 -
                              np.var(np.array(winner_batch) - new_v.flatten()) /
                              np.var(np.array(winner_batch)))
-        if train_i%10==0: 
+        if train_i%4==0: 
             logging.info(("kl:{:.4f},"
                    "lr:{:.1e},"
                    "loss:{},"
@@ -322,8 +325,8 @@ class TrainPipeline():
                     recv_count += 1
                 logging.info("batch i:{}, batchsize:{}, recv count:{}, buffer_len:{}".format(
                         i+1, self.batch_size, recv_count, len(self.data_buffer)))
-                if len(self.data_buffer) >= self.buffer_size:
-                    for train_i in range(self.train_sampling_num):
+                if len(self.data_buffer) >= self.batch_size:
+                    for train_i in range(self.train_sampling_times):
                         loss, entropy = self.policy_update(train_i)
                     self.params = self.policy_value_net.get_policy_param()
                     self.mcts_evaluater.Set_Params(self.params)
