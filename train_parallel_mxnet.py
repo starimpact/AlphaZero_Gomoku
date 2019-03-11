@@ -91,11 +91,11 @@ class TrainPipeline():
         self.n_playout = 400  # num of simulations for each move
         self.c_puct = 5
         self.agent_sampling_size = 128
-        self.batch_size = agent_sampling_size*comm_size  # mini-batch size for training
+        self.batch_size = self.agent_sampling_size*comm_size  # mini-batch size for training
         if comm_rank == 0:
-            self.buffer_size = agent_sampling_size*(comm_size*self.train_sampling_times)
+            self.buffer_size = self.agent_sampling_size*(comm_size*self.train_sampling_times)
         else:
-            self.buffer_size = agent_sampling_size
+            self.buffer_size = self.agent_sampling_size
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.play_batch_size = 1
         self.epochs = 5  # num of train_steps for each update
